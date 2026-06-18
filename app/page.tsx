@@ -1,65 +1,219 @@
-import Image from "next/image";
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { Category, supabase, TechnicalNote } from "@/lib/supabase";
+
+const NOTE_SELECT = "*, categories(id, name)";
+const EMPTY_FORM = { title: "", category_id: "", tags: "", source_url: "", content: "" };
 
 export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+  const [notes, setNotes] = useState<TechnicalNote[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<TechnicalNote | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function fetchNotes(q = "") {
+    let req = supabase
+      .from("technical_notes")
+      .select(NOTE_SELECT)
+      .order("created_at", { ascending: false });
+
+    const trimmedQuery = q.trim();
+    if (trimmedQuery) {
+      const { data: matchingCategories } = await supabase
+        .from("categories")
+        .select("id")
+        .ilike("name", `%${trimmedQuery}%`);
+      const categoryIds = matchingCategories?.map((category) => category.id) ?? [];
+      const categoryFilter = categoryIds.length > 0
+        ? `,category_id.in.(${categoryIds.join(",")})`
+        : "";
+
+      req = req.or(`title.ilike.%${trimmedQuery}%,content.ilike.%${trimmedQuery}%${categoryFilter}`);
+    }
+
+    const { data } = await req;
+    setNotes(data ?? []);
+  }
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialData() {
+      const [{ data: noteData }, { data: categoryData }] = await Promise.all([
+        supabase
+          .from("technical_notes")
+          .select(NOTE_SELECT)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("categories")
+          .select("*")
+          .order("name", { ascending: true }),
+      ]);
+
+      if (isMounted) {
+        setNotes(noteData ?? []);
+        setCategories(categoryData ?? []);
+      }
+    }
+
+    loadInitialData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  function handleSearch() { fetchNotes(query); }
+  function handleClear() { setQuery(""); fetchNotes(); }
+
+  async function handleSave() {
+    setError("");
+    if (!form.title.trim() || !form.content.trim()) {
+      setError("Title and Content are required.");
+      return;
+    }
+    setSaving(true);
+    const { error: err } = await supabase.from("technical_notes").insert({
+      title: form.title.trim(),
+      category_id: form.category_id || null,
+      tags: form.tags ? form.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
+      content: form.content.trim(),
+      source_url: form.source_url.trim() || null,
+    });
+    setSaving(false);
+    if (err) { setError(err.message); return; }
+    setForm(EMPTY_FORM);
+    fetchNotes(query);
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("Delete this note?")) return;
+    await supabase.from("technical_notes").delete().eq("id", id);
+    setSelected(null);
+    fetchNotes(query);
+  }
+
+  function formatDate(iso: string) {
+    return new Date(iso).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
+  }
+
+  if (selected) {
+    return (
+      <main className="max-w-3xl mx-auto p-6">
+        <button onClick={() => setSelected(null)} className="mb-4 text-sm text-blue-600 hover:underline">
+          ← Back to list
+        </button>
+        <h1 className="text-2xl font-bold mb-2">{selected.title}</h1>
+        <div className="flex gap-3 text-sm text-gray-500 mb-4 flex-wrap">
+          {selected.categories && <span className="bg-gray-100 px-2 py-0.5 rounded">{selected.categories.name}</span>}
+          {selected.tags.map((t) => (
+            <span key={t} className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">#{t}</span>
+          ))}
+          <span>Created Date: {formatDate(selected.created_at)}</span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
+        {selected.source_url && (
+          <a href={selected.source_url} target="_blank" rel="noopener noreferrer"
+            className="text-sm text-blue-600 hover:underline block mb-4">
+            {selected.source_url}
           </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+        )}
+        <pre className="whitespace-pre-wrap bg-gray-50 p-4 rounded text-sm leading-relaxed mb-6">
+          {selected.content}
+        </pre>
+        <button onClick={() => handleDelete(selected.id)}
+          className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm">
+          Delete
+        </button>
       </main>
-    </div>
+    );
+  }
+
+  return (
+    <main className="max-w-3xl mx-auto p-6 space-y-8">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-3xl font-bold">AI Technical Notes DB</h1>
+        <Link href="/categories" className="text-sm text-blue-600 hover:underline">
+          Manage Categories
+        </Link>
+      </header>
+
+      {/* Search */}
+      <div className="flex gap-2">
+        <input
+          className="border rounded px-3 py-2 flex-1 text-sm"
+          placeholder="Search notes..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+        />
+        <button onClick={handleSearch} className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">
+          Search
+        </button>
+        <button onClick={handleClear} className="px-4 py-2 border rounded text-sm hover:bg-gray-50">
+          Clear
+        </button>
+      </div>
+
+      {/* New Note Form */}
+      <section>
+        <h2 className="text-xl font-semibold mb-3">New Note</h2>
+        <div className="space-y-3">
+          <input className="border rounded px-3 py-2 w-full text-sm" placeholder="Title *"
+            value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          <select className="border rounded px-3 py-2 w-full text-sm bg-white"
+            value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })}>
+            <option value="">No category</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>{category.name}</option>
+            ))}
+          </select>
+          <input className="border rounded px-3 py-2 w-full text-sm" placeholder="Tags (comma-separated)"
+            value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
+          <input className="border rounded px-3 py-2 w-full text-sm" placeholder="Source URL"
+            value={form.source_url} onChange={(e) => setForm({ ...form, source_url: e.target.value })} />
+          <textarea className="border rounded px-3 py-2 w-full text-sm h-32" placeholder="Content *"
+            value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} />
+          {error && <p className="text-red-600 text-sm">{error}</p>}
+          <button onClick={handleSave} disabled={saving}
+            className="px-6 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50">
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </section>
+
+      {/* Notes List */}
+      <section>
+        <h2 className="text-xl font-semibold mb-3">Notes</h2>
+        {notes.length === 0 && <p className="text-gray-400 text-sm">No notes found.</p>}
+        <div className="space-y-3">
+          {notes.map((note) => (
+            <div key={note.id}
+              className="border rounded p-4 cursor-pointer hover:bg-gray-50"
+              onClick={() => setSelected(note)}>
+              <div className="flex flex-col gap-1 sm:flex-row sm:justify-between sm:items-start">
+                <h3 className="font-semibold">{note.title}</h3>
+                <span className="text-xs text-gray-400 sm:ml-4 shrink-0">
+                  Created Date: {formatDate(note.created_at)}
+                </span>
+              </div>
+              <div className="flex gap-2 mt-1 flex-wrap">
+                {note.categories && (
+                  <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{note.categories.name}</span>
+                )}
+                {note.tags.map((t) => (
+                  <span key={t} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">#{t}</span>
+                ))}
+              </div>
+              <p className="text-sm text-gray-600 mt-2">{note.content.slice(0, 200)}{note.content.length > 200 ? "…" : ""}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+    </main>
   );
 }
