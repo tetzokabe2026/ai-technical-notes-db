@@ -102,7 +102,30 @@ export default function Home() {
     return new Date(iso).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
   }
 
+  function getCategoryPath(categoryId: string | null) {
+    if (!categoryId) return "";
+
+    const byId = new Map(categories.map((category) => [category.id, category]));
+    const path: string[] = [];
+    let current = byId.get(categoryId);
+    let guard = 0;
+
+    while (current && guard < 20) {
+      path.unshift(current.name);
+      current = current.parent_id ? byId.get(current.parent_id) : undefined;
+      guard += 1;
+    }
+
+    return path.join(" > ");
+  }
+
+  const categoryOptions = [...categories].sort((a, b) =>
+    getCategoryPath(a.id).localeCompare(getCategoryPath(b.id))
+  );
+
   if (selected) {
+    const selectedCategoryPath = getCategoryPath(selected.category_id);
+
     return (
       <main className="max-w-3xl mx-auto p-6">
         <button onClick={() => setSelected(null)} className="mb-4 text-sm text-blue-600 hover:underline">
@@ -110,7 +133,7 @@ export default function Home() {
         </button>
         <h1 className="text-2xl font-bold mb-2">{selected.title}</h1>
         <div className="flex gap-3 text-sm text-gray-500 mb-4 flex-wrap">
-          {selected.categories && <span className="bg-gray-100 px-2 py-0.5 rounded">{selected.categories.name}</span>}
+          {selectedCategoryPath && <span className="bg-gray-100 px-2 py-0.5 rounded">{selectedCategoryPath}</span>}
           {selected.tags.map((t) => (
             <span key={t} className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">#{t}</span>
           ))}
@@ -168,8 +191,8 @@ export default function Home() {
           <select className="border rounded px-3 py-2 w-full text-sm bg-white"
             value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })}>
             <option value="">No category</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>{category.name}</option>
+            {categoryOptions.map((category) => (
+              <option key={category.id} value={category.id}>{getCategoryPath(category.id)}</option>
             ))}
           </select>
           <input className="border rounded px-3 py-2 w-full text-sm" placeholder="Tags (comma-separated)"
@@ -202,8 +225,8 @@ export default function Home() {
                 </span>
               </div>
               <div className="flex gap-2 mt-1 flex-wrap">
-                {note.categories && (
-                  <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{note.categories.name}</span>
+                {getCategoryPath(note.category_id) && (
+                  <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{getCategoryPath(note.category_id)}</span>
                 )}
                 {note.tags.map((t) => (
                   <span key={t} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">#{t}</span>

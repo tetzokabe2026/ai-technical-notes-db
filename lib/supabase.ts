@@ -3,6 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 export type Category = {
   id: string;
   name: string;
+  parent_id: string | null;
+  description: string | null;
+  ai_generated: boolean;
   created_at: string;
   updated_at: string;
 };
