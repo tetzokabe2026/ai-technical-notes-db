@@ -1,0 +1,4 @@
+-- Placeholder for a migration that exists in the linked remote Supabase
+-- migration history but was not present in this local repository.
+-- Keep this version so future `supabase db push` runs can compare
+-- local and remote migration history consistently.
