@@ -127,6 +127,25 @@ export default function Home() {
     return suggestion;
   }
 
+  async function saveNoteWithCategory(categoryId: string) {
+    setSaving(true);
+    const { error: err } = await supabase.from("technical_notes").insert({
+      title: form.title.trim(),
+      category_id: categoryId,
+      tags: parseTags(form.tags),
+      content: form.content.trim(),
+      source_url: form.source_url.trim() || null,
+    });
+    setSaving(false);
+    if (err) { setError(err.message); return false; }
+    setForm(EMPTY_FORM);
+    setCategorySuggestion(null);
+    setCategorySuggestionInput("");
+    setCategoryDialogOpen(false);
+    fetchNotes(query);
+    return true;
+  }
+
   async function useSuggestedCategoryPath() {
     const suggestedPath = categorySuggestionInput
       .split(">")
@@ -144,10 +163,7 @@ export default function Home() {
       && categorySuggestion.suggested_path.join(">").toLowerCase() === suggestedPath.join(">").toLowerCase();
 
     if (matchesOriginalSuggestion && categorySuggestion.existing_category_id) {
-      setForm((current) => ({ ...current, category_id: categorySuggestion.existing_category_id ?? "" }));
-      setCategorySuggestion(null);
-      setCategorySuggestionInput("");
-      setCategoryDialogOpen(false);
+      await saveNoteWithCategory(categorySuggestion.existing_category_id);
       return;
     }
 
@@ -166,10 +182,7 @@ export default function Home() {
     }
 
     await fetchCategories();
-    setForm((current) => ({ ...current, category_id: body.category.id }));
-    setCategorySuggestion(null);
-    setCategorySuggestionInput("");
-    setCategoryDialogOpen(false);
+    await saveNoteWithCategory(body.category.id);
   }
 
   async function handleSave() {
@@ -182,21 +195,7 @@ export default function Home() {
       await suggestCategory();
       return;
     }
-    setSaving(true);
-    const { error: err } = await supabase.from("technical_notes").insert({
-      title: form.title.trim(),
-      category_id: form.category_id,
-      tags: parseTags(form.tags),
-      content: form.content.trim(),
-      source_url: form.source_url.trim() || null,
-    });
-    setSaving(false);
-    if (err) { setError(err.message); return; }
-    setForm(EMPTY_FORM);
-    setCategorySuggestion(null);
-    setCategorySuggestionInput("");
-    setCategoryDialogOpen(false);
-    fetchNotes(query);
+    await saveNoteWithCategory(form.category_id);
   }
 
   async function handleDelete(id: string) {
@@ -359,7 +358,7 @@ export default function Home() {
                 disabled={suggesting || categorySuggestionInput.trim().length === 0}
                 onClick={useSuggestedCategoryPath}
               >
-                {suggesting ? "Applying..." : "Use This Category"}
+                {suggesting || saving ? "Saving..." : "OK"}
               </button>
             </div>
           </div>
