@@ -19,6 +19,8 @@ export default function Home() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [categorySuggestion, setCategorySuggestion] = useState<CategorySuggestion | null>(null);
+  const [categorySuggestionInput, setCategorySuggestionInput] = useState("");
+  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<TechnicalNote | null>(null);
   const [saving, setSaving] = useState(false);
@@ -118,18 +120,34 @@ export default function Home() {
       return null;
     }
 
-    setCategorySuggestion(body);
-    setError("AI suggested a category. Use the suggestion or choose another category before saving.");
-    return body as CategorySuggestion;
+    const suggestion = body as CategorySuggestion;
+    setCategorySuggestion(suggestion);
+    setCategorySuggestionInput(suggestion.suggested_path.join(" > "));
+    setCategoryDialogOpen(true);
+    return suggestion;
   }
 
-  async function useSuggestedCategory() {
-    if (!categorySuggestion) return;
+  async function useSuggestedCategoryPath() {
+    const suggestedPath = categorySuggestionInput
+      .split(">")
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (suggestedPath.length === 0) {
+      setError("Category is required.");
+      return;
+    }
+
     setError("");
 
-    if (categorySuggestion.existing_category_id) {
+    const matchesOriginalSuggestion = categorySuggestion
+      && categorySuggestion.suggested_path.join(">").toLowerCase() === suggestedPath.join(">").toLowerCase();
+
+    if (matchesOriginalSuggestion && categorySuggestion.existing_category_id) {
       setForm((current) => ({ ...current, category_id: categorySuggestion.existing_category_id ?? "" }));
       setCategorySuggestion(null);
+      setCategorySuggestionInput("");
+      setCategoryDialogOpen(false);
       return;
     }
 
@@ -137,7 +155,7 @@ export default function Home() {
     const response = await fetch("/api/categories/ensure-path", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: categorySuggestion.suggested_path }),
+      body: JSON.stringify({ path: suggestedPath }),
     });
     const body = await response.json();
     setSuggesting(false);
@@ -150,6 +168,8 @@ export default function Home() {
     await fetchCategories();
     setForm((current) => ({ ...current, category_id: body.category.id }));
     setCategorySuggestion(null);
+    setCategorySuggestionInput("");
+    setCategoryDialogOpen(false);
   }
 
   async function handleSave() {
@@ -159,11 +179,7 @@ export default function Home() {
       return;
     }
     if (!form.category_id) {
-      if (!categorySuggestion) {
-        await suggestCategory();
-      } else {
-        setError("Use the AI suggestion or choose a category manually before saving.");
-      }
+      await suggestCategory();
       return;
     }
     setSaving(true);
@@ -178,6 +194,8 @@ export default function Home() {
     if (err) { setError(err.message); return; }
     setForm(EMPTY_FORM);
     setCategorySuggestion(null);
+    setCategorySuggestionInput("");
+    setCategoryDialogOpen(false);
     fetchNotes(query);
   }
 
@@ -282,35 +300,14 @@ export default function Home() {
             value={form.category_id} onChange={(e) => {
               setForm({ ...form, category_id: e.target.value });
               setCategorySuggestion(null);
+              setCategorySuggestionInput("");
+              setCategoryDialogOpen(false);
             }}>
-            <option value="">Select or ask AI to suggest...</option>
+            <option value="">Select category...</option>
             {categoryOptions.map((category) => (
               <option key={category.id} value={category.id}>{getCategoryPath(category.id)}</option>
             ))}
           </select>
-          {categorySuggestion && (
-            <div className="border rounded p-3 text-sm bg-blue-50 border-blue-100">
-              <p className="font-medium text-blue-900">
-                Suggested Category: {categorySuggestion.suggested_path.join(" > ")}
-              </p>
-              <p className="text-blue-800 mt-1">{categorySuggestion.reason}</p>
-              <div className="flex gap-2 mt-3">
-                <button
-                  className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-                  disabled={suggesting}
-                  onClick={useSuggestedCategory}
-                >
-                  Use Suggestion
-                </button>
-                <button
-                  className="px-3 py-1.5 border rounded text-sm hover:bg-white"
-                  onClick={() => setCategorySuggestion(null)}
-                >
-                  Choose Manually
-                </button>
-              </div>
-            </div>
-          )}
           <input className="border rounded px-3 py-2 w-full text-sm" placeholder="Tags (comma-separated)"
             value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
           <input className="border rounded px-3 py-2 w-full text-sm" placeholder="Source URL"
@@ -321,15 +318,53 @@ export default function Home() {
           <div className="flex flex-wrap gap-2">
             <button onClick={handleSave} disabled={saving || suggesting}
               className="px-6 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50">
-              {saving ? "Saving..." : "Save"}
-            </button>
-            <button onClick={suggestCategory} disabled={saving || suggesting || !form.title.trim() || !form.content.trim()}
-              className="px-4 py-2 border rounded text-sm hover:bg-gray-50 disabled:opacity-50">
-              {suggesting ? "Suggesting..." : "Suggest Category"}
+              {saving ? "Saving..." : suggesting ? "Choosing category..." : "Save"}
             </button>
           </div>
         </div>
       </section>
+
+      {categoryDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="w-full max-w-lg rounded bg-white p-5 shadow-lg">
+            <h2 className="text-lg font-semibold">Category is not selected.</h2>
+            <p className="mt-2 text-sm text-gray-600">
+              Do you wish me to select for you?
+            </p>
+            <label className="mt-4 block text-sm font-medium text-gray-700">
+              Category
+              <input
+                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                value={categorySuggestionInput}
+                onChange={(event) => setCategorySuggestionInput(event.target.value)}
+                placeholder="Tech > Supabase > Security"
+              />
+            </label>
+            {categorySuggestion?.reason && (
+              <p className="mt-2 text-xs text-gray-500">{categorySuggestion.reason}</p>
+            )}
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                className="rounded border px-4 py-2 text-sm hover:bg-gray-50"
+                onClick={() => {
+                  setCategoryDialogOpen(false);
+                  setCategorySuggestion(null);
+                  setCategorySuggestionInput("");
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                disabled={suggesting || categorySuggestionInput.trim().length === 0}
+                onClick={useSuggestedCategoryPath}
+              >
+                {suggesting ? "Applying..." : "Use This Category"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Notes List */}
       <section>
