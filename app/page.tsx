@@ -88,6 +88,28 @@ export default function Home() {
     return value ? value.split(",").map((t) => t.trim()).filter(Boolean) : [];
   }
 
+  function fallbackTitleFromContent(content: string) {
+    const firstLine = content
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) ?? "";
+
+    const sentence = firstLine.split(/[。.!?]/)[0]?.trim() || firstLine;
+    return sentence.length > 60 ? `${sentence.slice(0, 60)}...` : sentence;
+  }
+
+  function pathFromCategoryId(categoryId: string) {
+    const path = getCategoryPath(categoryId);
+    return path ? path.split(">").map((part) => part.trim()).filter(Boolean) : [];
+  }
+
+  function normalizeSuggestionPath(path: unknown) {
+    return Array.isArray(path)
+      ? path.filter((part): part is string => typeof part === "string").map((part) => part.trim()).filter(Boolean)
+      : [];
+  }
+
   async function fetchCategories() {
     const { data } = await supabase
       .from("categories")
@@ -105,27 +127,55 @@ export default function Home() {
     }
 
     setSuggesting(true);
-    const response = await fetch("/api/ai/suggest-category", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: form.title.trim(),
-        tags: parseTags(form.tags),
-        content: form.content.trim(),
-      }),
-    });
-    const body = await response.json();
+    let body: unknown = null;
+    let response: Response;
+    try {
+      response = await fetch("/api/ai/suggest-category", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: form.title.trim(),
+          tags: parseTags(form.tags),
+          content: form.content.trim(),
+        }),
+      });
+      body = await response.json();
+    } catch {
+      setSuggesting(false);
+      setError("AI metadata suggestion failed. Please try Save again.");
+      return null;
+    }
     setSuggesting(false);
 
     if (!response.ok) {
-      setError(body.error ?? "AI category suggestion failed.");
+      const message = body && typeof body === "object" && "error" in body && typeof body.error === "string"
+        ? body.error
+        : "AI metadata suggestion failed.";
+      setError(message);
       return null;
     }
 
-    const suggestion = body as CategorySuggestion;
+    const rawSuggestion = body as Partial<CategorySuggestion>;
+    const suggestedPath = normalizeSuggestionPath(rawSuggestion.suggested_path);
+    const categoryPath = suggestedPath.length > 0
+      ? suggestedPath
+      : form.category_id
+        ? pathFromCategoryId(form.category_id)
+        : ["Other"];
+    const suggestedTitle = typeof rawSuggestion.suggested_title === "string"
+      ? rawSuggestion.suggested_title.trim()
+      : "";
+    const title = form.title.trim() || suggestedTitle || fallbackTitleFromContent(form.content);
+    const suggestion: CategorySuggestion = {
+      suggested_title: title,
+      suggested_path: categoryPath,
+      existing_category_id: rawSuggestion.existing_category_id ?? null,
+      confidence: typeof rawSuggestion.confidence === "number" ? rawSuggestion.confidence : null,
+      reason: rawSuggestion.reason ?? "AI suggested missing note metadata.",
+    };
     setCategorySuggestion(suggestion);
-    setTitleSuggestionInput(form.title.trim() || suggestion.suggested_title);
-    setCategorySuggestionInput(suggestion.suggested_path.join(" > "));
+    setTitleSuggestionInput(title);
+    setCategorySuggestionInput(categoryPath.join(" > "));
     setSuggestionDialogOpen(true);
     return suggestion;
   }
