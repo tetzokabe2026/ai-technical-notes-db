@@ -7,13 +7,22 @@ import { Category, supabase, TechnicalNote } from "@/lib/supabase";
 const NOTE_SELECT = "*, categories(id, name)";
 const EMPTY_FORM = { title: "", category_id: "", tags: "", source_url: "", content: "" };
 
+type CategorySuggestion = {
+  suggested_path: string[];
+  existing_category_id: string | null;
+  confidence: number | null;
+  reason: string | null;
+};
+
 export default function Home() {
   const [notes, setNotes] = useState<TechnicalNote[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [categorySuggestion, setCategorySuggestion] = useState<CategorySuggestion | null>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<TechnicalNote | null>(null);
   const [saving, setSaving] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
 
   async function fetchNotes(q = "") {
@@ -71,23 +80,104 @@ export default function Home() {
   function handleSearch() { fetchNotes(query); }
   function handleClear() { setQuery(""); fetchNotes(); }
 
+  function parseTags(value: string) {
+    return value ? value.split(",").map((t) => t.trim()).filter(Boolean) : [];
+  }
+
+  async function fetchCategories() {
+    const { data } = await supabase
+      .from("categories")
+      .select("*")
+      .order("name", { ascending: true });
+    setCategories(data ?? []);
+    return data ?? [];
+  }
+
+  async function suggestCategory() {
+    setError("");
+    if (!form.title.trim() || !form.content.trim()) {
+      setError("Title and Content are required before AI can suggest a category.");
+      return null;
+    }
+
+    setSuggesting(true);
+    const response = await fetch("/api/ai/suggest-category", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: form.title.trim(),
+        tags: parseTags(form.tags),
+        content: form.content.trim(),
+      }),
+    });
+    const body = await response.json();
+    setSuggesting(false);
+
+    if (!response.ok) {
+      setError(body.error ?? "AI category suggestion failed.");
+      return null;
+    }
+
+    setCategorySuggestion(body);
+    setError("AI suggested a category. Use the suggestion or choose another category before saving.");
+    return body as CategorySuggestion;
+  }
+
+  async function useSuggestedCategory() {
+    if (!categorySuggestion) return;
+    setError("");
+
+    if (categorySuggestion.existing_category_id) {
+      setForm((current) => ({ ...current, category_id: categorySuggestion.existing_category_id ?? "" }));
+      setCategorySuggestion(null);
+      return;
+    }
+
+    setSuggesting(true);
+    const response = await fetch("/api/categories/ensure-path", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: categorySuggestion.suggested_path }),
+    });
+    const body = await response.json();
+    setSuggesting(false);
+
+    if (!response.ok) {
+      setError(body.error ?? "Could not create suggested category.");
+      return;
+    }
+
+    await fetchCategories();
+    setForm((current) => ({ ...current, category_id: body.category.id }));
+    setCategorySuggestion(null);
+  }
+
   async function handleSave() {
     setError("");
     if (!form.title.trim() || !form.content.trim()) {
       setError("Title and Content are required.");
       return;
     }
+    if (!form.category_id) {
+      if (!categorySuggestion) {
+        await suggestCategory();
+      } else {
+        setError("Use the AI suggestion or choose a category manually before saving.");
+      }
+      return;
+    }
     setSaving(true);
     const { error: err } = await supabase.from("technical_notes").insert({
       title: form.title.trim(),
-      category_id: form.category_id || null,
-      tags: form.tags ? form.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
+      category_id: form.category_id,
+      tags: parseTags(form.tags),
       content: form.content.trim(),
       source_url: form.source_url.trim() || null,
     });
     setSaving(false);
     if (err) { setError(err.message); return; }
     setForm(EMPTY_FORM);
+    setCategorySuggestion(null);
     fetchNotes(query);
   }
 
@@ -189,12 +279,38 @@ export default function Home() {
           <input className="border rounded px-3 py-2 w-full text-sm" placeholder="Title *"
             value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           <select className="border rounded px-3 py-2 w-full text-sm bg-white"
-            value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })}>
-            <option value="">No category</option>
+            value={form.category_id} onChange={(e) => {
+              setForm({ ...form, category_id: e.target.value });
+              setCategorySuggestion(null);
+            }}>
+            <option value="">Select or ask AI to suggest...</option>
             {categoryOptions.map((category) => (
               <option key={category.id} value={category.id}>{getCategoryPath(category.id)}</option>
             ))}
           </select>
+          {categorySuggestion && (
+            <div className="border rounded p-3 text-sm bg-blue-50 border-blue-100">
+              <p className="font-medium text-blue-900">
+                Suggested Category: {categorySuggestion.suggested_path.join(" > ")}
+              </p>
+              <p className="text-blue-800 mt-1">{categorySuggestion.reason}</p>
+              <div className="flex gap-2 mt-3">
+                <button
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                  disabled={suggesting}
+                  onClick={useSuggestedCategory}
+                >
+                  Use Suggestion
+                </button>
+                <button
+                  className="px-3 py-1.5 border rounded text-sm hover:bg-white"
+                  onClick={() => setCategorySuggestion(null)}
+                >
+                  Choose Manually
+                </button>
+              </div>
+            </div>
+          )}
           <input className="border rounded px-3 py-2 w-full text-sm" placeholder="Tags (comma-separated)"
             value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} />
           <input className="border rounded px-3 py-2 w-full text-sm" placeholder="Source URL"
@@ -202,10 +318,16 @@ export default function Home() {
           <textarea className="border rounded px-3 py-2 w-full text-sm h-32" placeholder="Content *"
             value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} />
           {error && <p className="text-red-600 text-sm">{error}</p>}
-          <button onClick={handleSave} disabled={saving}
-            className="px-6 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50">
-            {saving ? "Saving..." : "Save"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={handleSave} disabled={saving || suggesting}
+              className="px-6 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50">
+              {saving ? "Saving..." : "Save"}
+            </button>
+            <button onClick={suggestCategory} disabled={saving || suggesting || !form.title.trim() || !form.content.trim()}
+              className="px-4 py-2 border rounded text-sm hover:bg-gray-50 disabled:opacity-50">
+              {suggesting ? "Suggesting..." : "Suggest Category"}
+            </button>
+          </div>
         </div>
       </section>
 

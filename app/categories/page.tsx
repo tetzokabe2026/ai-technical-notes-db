@@ -14,22 +14,6 @@ type CategoryTreeNode = CategoryWithCount & {
   descendantNoteCount: number;
 };
 
-type AiClassificationPreview = {
-  id: string;
-  run_id: string;
-  note_id: string;
-  suggested_path: string[];
-  existing_category_id: string | null;
-  confidence: number | null;
-  reason: string | null;
-  applied: boolean;
-  note: {
-    id: string;
-    title: string;
-    category_id: string | null;
-  } | null;
-};
-
 export default function CategoriesPage() {
   const [categories, setCategories] = useState<CategoryWithCount[]>([]);
   const [newName, setNewName] = useState("");
@@ -37,10 +21,6 @@ export default function CategoriesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [classificationRunId, setClassificationRunId] = useState<string | null>(null);
-  const [classifications, setClassifications] = useState<AiClassificationPreview[]>([]);
-  const [classifying, setClassifying] = useState(false);
-  const [applying, setApplying] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -258,44 +238,6 @@ export default function CategoriesPage() {
     fetchCategories();
   }
 
-  async function handleAutoClassify() {
-    setError("");
-    setClassifying(true);
-    const response = await fetch("/api/ai/classify-notes", { method: "POST" });
-    const body = await response.json();
-    setClassifying(false);
-
-    if (!response.ok) {
-      setError(body.error ?? "AI分類に失敗しました。");
-      return;
-    }
-
-    setClassificationRunId(body.run.id);
-    setClassifications(body.classifications ?? []);
-  }
-
-  async function handleApplyClassification() {
-    if (!classificationRunId) return;
-
-    setError("");
-    setApplying(true);
-    const response = await fetch(`/api/ai/classification-runs/${classificationRunId}/apply`, {
-      method: "POST",
-    });
-    const body = await response.json();
-    setApplying(false);
-
-    if (!response.ok) {
-      setError(body.error ?? "AI分類案の適用に失敗しました。");
-      return;
-    }
-
-    setClassifications((current) =>
-      current.map((classification) => ({ ...classification, applied: true }))
-    );
-    await fetchCategories();
-  }
-
   function toggleExpanded(categoryId: string) {
     setExpandedIds((current) => {
       const next = new Set(current);
@@ -429,68 +371,6 @@ export default function CategoriesPage() {
           </p>
         )}
         {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
-      </section>
-
-      <section>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
-          <h2 className="text-xl font-semibold">AI Classification</h2>
-          <div className="flex gap-2">
-            <button
-              className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-              disabled={classifying || applying}
-              onClick={handleAutoClassify}
-            >
-              {classifying ? "Classifying..." : "AI Auto Classify"}
-            </button>
-            {classifications.length > 0 && (
-              <button
-                className="px-4 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50"
-                disabled={applying || classifications.every((classification) => classification.applied)}
-                onClick={handleApplyClassification}
-              >
-                {applying ? "Applying..." : "Apply All"}
-              </button>
-            )}
-          </div>
-        </div>
-
-        {classifications.length > 0 && (
-          <div className="border rounded overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-left">
-                <tr>
-                  <th className="px-3 py-2 font-semibold">Note</th>
-                  <th className="px-3 py-2 font-semibold">Current</th>
-                  <th className="px-3 py-2 font-semibold">Suggested</th>
-                  <th className="px-3 py-2 font-semibold">Confidence</th>
-                  <th className="px-3 py-2 font-semibold">Reason</th>
-                </tr>
-              </thead>
-              <tbody>
-                {classifications.map((classification) => (
-                  <tr key={classification.id} className="border-t align-top">
-                    <td className="px-3 py-2 font-medium">{classification.note?.title ?? classification.note_id}</td>
-                    <td className="px-3 py-2 text-gray-600">
-                      {getCategoryPath(classification.note?.category_id ?? null) || "No category"}
-                    </td>
-                    <td className="px-3 py-2">
-                      {classification.suggested_path.join(" > ")}
-                      {classification.applied && (
-                        <span className="ml-2 text-xs text-green-700">Applied</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-gray-600">
-                      {classification.confidence === null
-                        ? "-"
-                        : `${Math.round(classification.confidence * 100)}%`}
-                    </td>
-                    <td className="px-3 py-2 text-gray-600">{classification.reason}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </section>
 
       <section>
