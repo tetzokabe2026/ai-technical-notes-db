@@ -29,6 +29,12 @@ type OpenAiAssignment = {
   reason?: string;
 };
 
+type OpenAiSuggestion = {
+  suggested_path: string[];
+  confidence?: number;
+  reason?: string;
+};
+
 type SavedClassification = AiClassificationResult & {
   id: string;
   run_id: string;
@@ -61,6 +67,113 @@ const CLASSIFICATION_SCHEMA = {
   },
   required: ["assignments"],
 };
+
+const SINGLE_NOTE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    suggested_path: {
+      type: "array",
+      minItems: 1,
+      maxItems: 4,
+      items: { type: "string" },
+    },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    reason: { type: "string" },
+  },
+  required: ["suggested_path", "confidence", "reason"],
+};
+
+export async function suggestCategoryForNote(note: {
+  title: string;
+  tags: string[];
+  content: string;
+}) {
+  const supabaseAdmin = getSupabaseAdmin();
+  const model = process.env.OPENAI_MODEL ?? "gpt-5.5";
+  const openAiApiKey = process.env.OPENAI_API_KEY;
+
+  if (!openAiApiKey) {
+    throw new Error("OPENAI_API_KEY is required.");
+  }
+
+  const { data: categories, error: categoriesError } = await supabaseAdmin
+    .from("categories")
+    .select("id,name,parent_id")
+    .order("name", { ascending: true });
+  if (categoriesError) throw new Error(categoriesError.message);
+
+  const safeCategories = (categories ?? []) as CategoryForClassification[];
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${openAiApiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      reasoning: { effort: "low" },
+      instructions: [
+        "You suggest exactly one hierarchical category path for a new personal knowledge-base note.",
+        "Prefer existing categories when they fit. Propose a new path only when needed.",
+        "Use concise category names. Use at most 4 levels.",
+        "Root categories should usually be Tech, Health, Finance, Personal, Work, Travel, Sports, Music, Goods, or Other.",
+        "Return only data that matches the schema.",
+      ].join("\n"),
+      input: JSON.stringify({
+        existing_categories: safeCategories,
+        note: {
+          title: note.title,
+          tags: note.tags,
+          content: note.content.slice(0, 4000),
+        },
+      }),
+      text: {
+        format: {
+          type: "json_schema",
+          name: "note_category_suggestion",
+          strict: true,
+          schema: SINGLE_NOTE_SCHEMA,
+        },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`OpenAI API request failed: ${message}`);
+  }
+
+  const payload = await response.json();
+  const parsed = parseOpenAiJson(payload) as OpenAiSuggestion;
+  const suggestedPath = normalizePath(parsed.suggested_path);
+  if (suggestedPath.length === 0) {
+    throw new Error("OpenAI did not return a usable category suggestion.");
+  }
+
+  return {
+    suggested_path: suggestedPath,
+    existing_category_id: findExistingCategoryId(safeCategories, suggestedPath),
+    confidence: typeof parsed.confidence === "number" ? parsed.confidence : null,
+    reason: parsed.reason ?? null,
+  };
+}
+
+export async function ensureCategoryPathForSuggestion(path: string[]) {
+  const supabaseAdmin = getSupabaseAdmin();
+  const { data: categories, error: categoriesError } = await supabaseAdmin
+    .from("categories")
+    .select("id,name,parent_id");
+  if (categoriesError) throw new Error(categoriesError.message);
+
+  const categoryCache = new Map<string, CategoryForClassification>();
+  for (const category of (categories ?? []) as CategoryForClassification[]) {
+    categoryCache.set(categoryKey(category.parent_id, category.name), category);
+  }
+
+  const leafCategory = await ensureCategoryPath(supabaseAdmin, normalizePath(path), categoryCache);
+  return leafCategory;
+}
 
 export async function createClassificationRun() {
   const supabaseAdmin = getSupabaseAdmin();
