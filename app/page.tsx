@@ -8,6 +8,7 @@ const NOTE_SELECT = "*, categories(id, name)";
 const EMPTY_FORM = { title: "", category_id: "", tags: "", source_url: "", content: "" };
 
 type CategorySuggestion = {
+  suggested_title: string;
   suggested_path: string[];
   existing_category_id: string | null;
   confidence: number | null;
@@ -19,8 +20,9 @@ export default function Home() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [categorySuggestion, setCategorySuggestion] = useState<CategorySuggestion | null>(null);
+  const [titleSuggestionInput, setTitleSuggestionInput] = useState("");
   const [categorySuggestionInput, setCategorySuggestionInput] = useState("");
-  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
+  const [suggestionDialogOpen, setSuggestionDialogOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<TechnicalNote | null>(null);
   const [saving, setSaving] = useState(false);
@@ -95,10 +97,10 @@ export default function Home() {
     return data ?? [];
   }
 
-  async function suggestCategory() {
+  async function suggestNoteMetadata() {
     setError("");
-    if (!form.title.trim() || !form.content.trim()) {
-      setError("Title and Content are required before AI can suggest a category.");
+    if (!form.content.trim()) {
+      setError("Content is required before AI can suggest note metadata.");
       return null;
     }
 
@@ -122,15 +124,16 @@ export default function Home() {
 
     const suggestion = body as CategorySuggestion;
     setCategorySuggestion(suggestion);
+    setTitleSuggestionInput(form.title.trim() || suggestion.suggested_title);
     setCategorySuggestionInput(suggestion.suggested_path.join(" > "));
-    setCategoryDialogOpen(true);
+    setSuggestionDialogOpen(true);
     return suggestion;
   }
 
-  async function saveNoteWithCategory(categoryId: string) {
+  async function saveNoteWithMetadata(title: string, categoryId: string) {
     setSaving(true);
     const { error: err } = await supabase.from("technical_notes").insert({
-      title: form.title.trim(),
+      title,
       category_id: categoryId,
       tags: parseTags(form.tags),
       content: form.content.trim(),
@@ -140,17 +143,24 @@ export default function Home() {
     if (err) { setError(err.message); return false; }
     setForm(EMPTY_FORM);
     setCategorySuggestion(null);
+    setTitleSuggestionInput("");
     setCategorySuggestionInput("");
-    setCategoryDialogOpen(false);
+    setSuggestionDialogOpen(false);
     fetchNotes(query);
     return true;
   }
 
-  async function useSuggestedCategoryPath() {
+  async function useSuggestedMetadata() {
+    const title = titleSuggestionInput.trim();
     const suggestedPath = categorySuggestionInput
       .split(">")
       .map((part) => part.trim())
       .filter(Boolean);
+
+    if (!title) {
+      setError("Title is required.");
+      return;
+    }
 
     if (suggestedPath.length === 0) {
       setError("Category is required.");
@@ -163,7 +173,7 @@ export default function Home() {
       && categorySuggestion.suggested_path.join(">").toLowerCase() === suggestedPath.join(">").toLowerCase();
 
     if (matchesOriginalSuggestion && categorySuggestion.existing_category_id) {
-      await saveNoteWithCategory(categorySuggestion.existing_category_id);
+      await saveNoteWithMetadata(title, categorySuggestion.existing_category_id);
       return;
     }
 
@@ -182,20 +192,20 @@ export default function Home() {
     }
 
     await fetchCategories();
-    await saveNoteWithCategory(body.category.id);
+    await saveNoteWithMetadata(title, body.category.id);
   }
 
   async function handleSave() {
     setError("");
-    if (!form.title.trim() || !form.content.trim()) {
-      setError("Title and Content are required.");
+    if (!form.content.trim()) {
+      setError("Content is required.");
       return;
     }
-    if (!form.category_id) {
-      await suggestCategory();
+    if (!form.title.trim() || !form.category_id) {
+      await suggestNoteMetadata();
       return;
     }
-    await saveNoteWithCategory(form.category_id);
+    await saveNoteWithMetadata(form.title.trim(), form.category_id);
   }
 
   async function handleDelete(id: string) {
@@ -293,14 +303,15 @@ export default function Home() {
       <section>
         <h2 className="text-xl font-semibold mb-3">New Note</h2>
         <div className="space-y-3">
-          <input className="border rounded px-3 py-2 w-full text-sm" placeholder="Title *"
+          <input className="border rounded px-3 py-2 w-full text-sm" placeholder="Title (AI can generate)"
             value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           <select className="border rounded px-3 py-2 w-full text-sm bg-white"
             value={form.category_id} onChange={(e) => {
               setForm({ ...form, category_id: e.target.value });
               setCategorySuggestion(null);
+              setTitleSuggestionInput("");
               setCategorySuggestionInput("");
-              setCategoryDialogOpen(false);
+              setSuggestionDialogOpen(false);
             }}>
             <option value="">Select category...</option>
             {categoryOptions.map((category) => (
@@ -323,13 +334,22 @@ export default function Home() {
         </div>
       </section>
 
-      {categoryDialogOpen && (
+      {suggestionDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
           <div className="w-full max-w-lg rounded bg-white p-5 shadow-lg">
-            <h2 className="text-lg font-semibold">Category is not selected.</h2>
+            <h2 className="text-lg font-semibold">Required metadata is missing.</h2>
             <p className="mt-2 text-sm text-gray-600">
-              Do you wish me to select for you?
+              I suggested a title and category. Please confirm or edit them before saving.
             </p>
+            <label className="mt-4 block text-sm font-medium text-gray-700">
+              Title
+              <input
+                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                value={titleSuggestionInput}
+                onChange={(event) => setTitleSuggestionInput(event.target.value)}
+                placeholder="One-line title"
+              />
+            </label>
             <label className="mt-4 block text-sm font-medium text-gray-700">
               Category
               <input
@@ -346,8 +366,9 @@ export default function Home() {
               <button
                 className="rounded border px-4 py-2 text-sm hover:bg-gray-50"
                 onClick={() => {
-                  setCategoryDialogOpen(false);
+                  setSuggestionDialogOpen(false);
                   setCategorySuggestion(null);
+                  setTitleSuggestionInput("");
                   setCategorySuggestionInput("");
                 }}
               >
@@ -355,8 +376,8 @@ export default function Home() {
               </button>
               <button
                 className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-                disabled={suggesting || categorySuggestionInput.trim().length === 0}
-                onClick={useSuggestedCategoryPath}
+                disabled={suggesting || titleSuggestionInput.trim().length === 0 || categorySuggestionInput.trim().length === 0}
+                onClick={useSuggestedMetadata}
               >
                 {suggesting || saving ? "Saving..." : "OK"}
               </button>

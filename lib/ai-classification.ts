@@ -30,6 +30,7 @@ type OpenAiAssignment = {
 };
 
 type OpenAiSuggestion = {
+  suggested_title?: string;
   suggested_path: string[];
   confidence?: number;
   reason?: string;
@@ -72,6 +73,11 @@ const SINGLE_NOTE_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
+    suggested_title: {
+      type: "string",
+      minLength: 1,
+      maxLength: 80,
+    },
     suggested_path: {
       type: "array",
       minItems: 1,
@@ -81,11 +87,11 @@ const SINGLE_NOTE_SCHEMA = {
     confidence: { type: "number", minimum: 0, maximum: 1 },
     reason: { type: "string" },
   },
-  required: ["suggested_path", "confidence", "reason"],
+  required: ["suggested_title", "suggested_path", "confidence", "reason"],
 };
 
-export async function suggestCategoryForNote(note: {
-  title: string;
+export async function suggestMetadataForNote(note: {
+  title?: string;
   tags: string[];
   content: string;
 }) {
@@ -114,7 +120,9 @@ export async function suggestCategoryForNote(note: {
       model,
       reasoning: { effort: "low" },
       instructions: [
-        "You suggest exactly one hierarchical category path for a new personal knowledge-base note.",
+        "You suggest metadata for a new personal knowledge-base note.",
+        "Create a concise one-line title if the user did not provide a useful title. If a useful title exists, preserve or lightly improve it.",
+        "Suggest exactly one hierarchical category path.",
         "Prefer existing categories when they fit. Propose a new path only when needed.",
         "Use concise category names. Use at most 4 levels.",
         "Root categories should usually be Tech, Health, Finance, Personal, Work, Travel, Sports, Music, Goods, or Other.",
@@ -123,7 +131,7 @@ export async function suggestCategoryForNote(note: {
       input: JSON.stringify({
         existing_categories: safeCategories,
         note: {
-          title: note.title,
+          title: note.title ?? "",
           tags: note.tags,
           content: note.content.slice(0, 4000),
         },
@@ -152,12 +160,15 @@ export async function suggestCategoryForNote(note: {
   }
 
   return {
+    suggested_title: typeof parsed.suggested_title === "string" ? parsed.suggested_title.trim() : "",
     suggested_path: suggestedPath,
     existing_category_id: findExistingCategoryId(safeCategories, suggestedPath),
     confidence: typeof parsed.confidence === "number" ? parsed.confidence : null,
     reason: parsed.reason ?? null,
   };
 }
+
+export const suggestCategoryForNote = suggestMetadataForNote;
 
 export async function ensureCategoryPathForSuggestion(path: string[]) {
   const supabaseAdmin = getSupabaseAdmin();
