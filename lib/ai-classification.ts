@@ -77,7 +77,7 @@ const SINGLE_NOTE_SCHEMA = {
     suggested_title: {
       type: "string",
       minLength: 1,
-      maxLength: 80,
+      maxLength: 160,
     },
     suggested_path: {
       type: "array",
@@ -132,7 +132,8 @@ export async function suggestMetadataForNote(note: {
       reasoning: { effort: "low" },
       instructions: [
         "You suggest metadata for a new personal knowledge-base note.",
-        "Create a concise one-line title if the user did not provide a useful title. If a useful title exists, preserve or lightly improve it.",
+        "Create a descriptive one-line title if the user did not provide a useful title. Aim for enough context to understand the note at a glance, roughly 12 to 24 words when appropriate. If a useful title exists, preserve or lightly improve it.",
+        "Use the same primary language as the note for the title and tags.",
         "Suggest exactly one hierarchical category path.",
         "Suggest exactly three keyword tags from the note content.",
         "Tags should be concise, searchable keywords. Do not include # symbols.",
