@@ -98,7 +98,7 @@ export default function Home() {
       .find(Boolean) ?? "";
 
     const sentence = firstLine.split(/[。.!?]/)[0]?.trim() || firstLine;
-    return sentence.length > 60 ? `${sentence.slice(0, 60)}...` : sentence;
+    return sentence.length > 120 ? `${sentence.slice(0, 120)}...` : sentence;
   }
 
   function pathFromCategoryId(categoryId: string) {
