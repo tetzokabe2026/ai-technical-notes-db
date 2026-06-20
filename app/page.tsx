@@ -10,6 +10,7 @@ const EMPTY_FORM = { title: "", category_id: "", tags: "", source_url: "", conte
 type CategorySuggestion = {
   suggested_title: string;
   suggested_path: string[];
+  suggested_tags: string[];
   existing_category_id: string | null;
   confidence: number | null;
   reason: string | null;
@@ -22,6 +23,7 @@ export default function Home() {
   const [categorySuggestion, setCategorySuggestion] = useState<CategorySuggestion | null>(null);
   const [titleSuggestionInput, setTitleSuggestionInput] = useState("");
   const [categorySuggestionInput, setCategorySuggestionInput] = useState("");
+  const [tagSuggestionInput, setTagSuggestionInput] = useState("");
   const [suggestionDialogOpen, setSuggestionDialogOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<TechnicalNote | null>(null);
@@ -110,6 +112,38 @@ export default function Home() {
       : [];
   }
 
+  function normalizeTags(tags: unknown) {
+    if (!Array.isArray(tags)) return [];
+
+    return Array.from(new Set(
+      tags
+        .filter((tag): tag is string => typeof tag === "string")
+        .map((tag) => tag.replace(/^#+/, "").trim())
+        .filter(Boolean)
+    )).slice(0, 3);
+  }
+
+  function parseConfirmedTags(value: string) {
+    return normalizeTags(parseTags(value));
+  }
+
+  function fallbackTagsFromContent(content: string, title: string, categoryPath: string[]) {
+    const source = `${title} ${categoryPath.join(" ")} ${content}`;
+    const candidates = source
+      .split(/[\s,、。.!?;:；：()[\]{}"'「」『』<>/\\|]+/)
+      .map((word) => word.replace(/^#+/, "").trim())
+      .filter((word) => word.length >= 2 && word.length <= 30);
+    const tags = Array.from(new Set(candidates)).slice(0, 3);
+    const fallbackPool = [categoryPath.at(-1), categoryPath[0], "memo", "keyword"].filter((tag): tag is string => Boolean(tag));
+
+    for (const tag of fallbackPool) {
+      if (tags.length >= 3) break;
+      if (!tags.some((existing) => existing.toLowerCase() === tag.toLowerCase())) tags.push(tag);
+    }
+
+    return tags.slice(0, 3);
+  }
+
   async function fetchCategories() {
     const { data } = await supabase
       .from("categories")
@@ -166,26 +200,32 @@ export default function Home() {
       ? rawSuggestion.suggested_title.trim()
       : "";
     const title = form.title.trim() || suggestedTitle || fallbackTitleFromContent(form.content);
+    const suggestedTags = normalizeTags(rawSuggestion.suggested_tags);
+    const tags = suggestedTags.length === 3
+      ? suggestedTags
+      : fallbackTagsFromContent(form.content, title, categoryPath);
     const suggestion: CategorySuggestion = {
       suggested_title: title,
       suggested_path: categoryPath,
+      suggested_tags: tags,
       existing_category_id: rawSuggestion.existing_category_id ?? null,
       confidence: typeof rawSuggestion.confidence === "number" ? rawSuggestion.confidence : null,
-      reason: rawSuggestion.reason ?? "AI suggested missing note metadata.",
+      reason: typeof rawSuggestion.reason === "string" ? rawSuggestion.reason : "AI suggested missing note metadata.",
     };
     setCategorySuggestion(suggestion);
     setTitleSuggestionInput(title);
     setCategorySuggestionInput(categoryPath.join(" > "));
+    setTagSuggestionInput(tags.join(", "));
     setSuggestionDialogOpen(true);
     return suggestion;
   }
 
-  async function saveNoteWithMetadata(title: string, categoryId: string) {
+  async function saveNoteWithMetadata(title: string, categoryId: string, tags = parseTags(form.tags)) {
     setSaving(true);
     const { error: err } = await supabase.from("technical_notes").insert({
       title,
       category_id: categoryId,
-      tags: parseTags(form.tags),
+      tags,
       content: form.content.trim(),
       source_url: form.source_url.trim() || null,
     });
@@ -195,6 +235,7 @@ export default function Home() {
     setCategorySuggestion(null);
     setTitleSuggestionInput("");
     setCategorySuggestionInput("");
+    setTagSuggestionInput("");
     setSuggestionDialogOpen(false);
     fetchNotes(query);
     return true;
@@ -206,6 +247,7 @@ export default function Home() {
       .split(">")
       .map((part) => part.trim())
       .filter(Boolean);
+    const suggestedTags = parseConfirmedTags(tagSuggestionInput);
 
     if (!title) {
       setError("Title is required.");
@@ -217,13 +259,18 @@ export default function Home() {
       return;
     }
 
+    if (suggestedTags.length !== 3) {
+      setError("Three tags are required.");
+      return;
+    }
+
     setError("");
 
     const matchesOriginalSuggestion = categorySuggestion
       && categorySuggestion.suggested_path.join(">").toLowerCase() === suggestedPath.join(">").toLowerCase();
 
     if (matchesOriginalSuggestion && categorySuggestion.existing_category_id) {
-      await saveNoteWithMetadata(title, categorySuggestion.existing_category_id);
+      await saveNoteWithMetadata(title, categorySuggestion.existing_category_id, suggestedTags);
       return;
     }
 
@@ -242,7 +289,7 @@ export default function Home() {
     }
 
     await fetchCategories();
-    await saveNoteWithMetadata(title, body.category.id);
+    await saveNoteWithMetadata(title, body.category.id, suggestedTags);
   }
 
   async function handleSave() {
@@ -251,7 +298,7 @@ export default function Home() {
       setError("Content is required.");
       return;
     }
-    if (!form.title.trim() || !form.category_id) {
+    if (!form.title.trim() || !form.category_id || parseTags(form.tags).length < 3) {
       await suggestNoteMetadata();
       return;
     }
@@ -361,6 +408,7 @@ export default function Home() {
               setCategorySuggestion(null);
               setTitleSuggestionInput("");
               setCategorySuggestionInput("");
+              setTagSuggestionInput("");
               setSuggestionDialogOpen(false);
             }}>
             <option value="">Select category...</option>
@@ -389,7 +437,7 @@ export default function Home() {
           <div className="w-full max-w-lg rounded bg-white p-5 shadow-lg">
             <h2 className="text-lg font-semibold">Required metadata is missing.</h2>
             <p className="mt-2 text-sm text-gray-600">
-              I suggested a title and category. Please confirm or edit them before saving.
+              I suggested a title, category, and three tags. Please confirm or edit them before saving.
             </p>
             <label className="mt-4 block text-sm font-medium text-gray-700">
               Title
@@ -409,6 +457,15 @@ export default function Home() {
                 placeholder="Tech > Supabase > Security"
               />
             </label>
+            <label className="mt-4 block text-sm font-medium text-gray-700">
+              Tags
+              <input
+                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                value={tagSuggestionInput}
+                onChange={(event) => setTagSuggestionInput(event.target.value)}
+                placeholder="keyword 1, keyword 2, keyword 3"
+              />
+            </label>
             {categorySuggestion?.reason && (
               <p className="mt-2 text-xs text-gray-500">{categorySuggestion.reason}</p>
             )}
@@ -420,13 +477,19 @@ export default function Home() {
                   setCategorySuggestion(null);
                   setTitleSuggestionInput("");
                   setCategorySuggestionInput("");
+                  setTagSuggestionInput("");
                 }}
               >
                 Cancel
               </button>
               <button
                 className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-                disabled={suggesting || titleSuggestionInput.trim().length === 0 || categorySuggestionInput.trim().length === 0}
+                disabled={
+                  suggesting
+                  || titleSuggestionInput.trim().length === 0
+                  || categorySuggestionInput.trim().length === 0
+                  || parseConfirmedTags(tagSuggestionInput).length !== 3
+                }
                 onClick={useSuggestedMetadata}
               >
                 {suggesting || saving ? "Saving..." : "OK"}

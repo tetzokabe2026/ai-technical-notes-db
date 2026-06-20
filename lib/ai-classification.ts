@@ -32,6 +32,7 @@ type OpenAiAssignment = {
 type OpenAiSuggestion = {
   suggested_title?: string;
   suggested_path: string[];
+  suggested_tags?: string[];
   confidence?: number;
   reason?: string;
 };
@@ -84,10 +85,20 @@ const SINGLE_NOTE_SCHEMA = {
       maxItems: 4,
       items: { type: "string" },
     },
+    suggested_tags: {
+      type: "array",
+      minItems: 3,
+      maxItems: 3,
+      items: {
+        type: "string",
+        minLength: 1,
+        maxLength: 30,
+      },
+    },
     confidence: { type: "number", minimum: 0, maximum: 1 },
     reason: { type: "string" },
   },
-  required: ["suggested_title", "suggested_path", "confidence", "reason"],
+  required: ["suggested_title", "suggested_path", "suggested_tags", "confidence", "reason"],
 };
 
 export async function suggestMetadataForNote(note: {
@@ -123,6 +134,8 @@ export async function suggestMetadataForNote(note: {
         "You suggest metadata for a new personal knowledge-base note.",
         "Create a concise one-line title if the user did not provide a useful title. If a useful title exists, preserve or lightly improve it.",
         "Suggest exactly one hierarchical category path.",
+        "Suggest exactly three keyword tags from the note content.",
+        "Tags should be concise, searchable keywords. Do not include # symbols.",
         "Prefer existing categories when they fit. Propose a new path only when needed.",
         "Use concise category names. Use at most 4 levels.",
         "Root categories should usually be Tech, Health, Finance, Personal, Work, Travel, Sports, Music, Goods, or Other.",
@@ -162,6 +175,7 @@ export async function suggestMetadataForNote(note: {
   return {
     suggested_title: typeof parsed.suggested_title === "string" ? parsed.suggested_title.trim() : "",
     suggested_path: suggestedPath,
+    suggested_tags: normalizeTags(parsed.suggested_tags),
     existing_category_id: findExistingCategoryId(safeCategories, suggestedPath),
     confidence: typeof parsed.confidence === "number" ? parsed.confidence : null,
     reason: parsed.reason ?? null,
@@ -366,6 +380,17 @@ function normalizePath(path: string[]) {
     .map((part) => part.trim())
     .filter(Boolean)
     .slice(0, 4);
+}
+
+function normalizeTags(tags: unknown) {
+  if (!Array.isArray(tags)) return [];
+
+  return Array.from(new Set(
+    tags
+      .filter((tag): tag is string => typeof tag === "string")
+      .map((tag) => tag.replace(/^#+/, "").trim())
+      .filter(Boolean)
+  )).slice(0, 3);
 }
 
 function findExistingCategoryId(categories: CategoryForClassification[], path: string[]) {
