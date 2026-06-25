@@ -12,6 +12,7 @@ type CategoryForClassification = {
   id: string;
   name: string;
   parent_id: string | null;
+  owner_user_id?: string | null;
 };
 
 export type AiClassificationResult = {
@@ -105,6 +106,7 @@ export async function suggestMetadataForNote(note: {
   title?: string;
   tags: string[];
   content: string;
+  ownerUserId?: string;
 }) {
   const supabaseAdmin = getSupabaseAdmin();
   const model = process.env.OPENAI_MODEL ?? "gpt-5.5";
@@ -117,6 +119,7 @@ export async function suggestMetadataForNote(note: {
   const { data: categories, error: categoriesError } = await supabaseAdmin
     .from("categories")
     .select("id,name,parent_id")
+    .eq("owner_user_id", note.ownerUserId ?? "")
     .order("name", { ascending: true });
   if (categoriesError) throw new Error(categoriesError.message);
 
@@ -185,11 +188,12 @@ export async function suggestMetadataForNote(note: {
 
 export const suggestCategoryForNote = suggestMetadataForNote;
 
-export async function ensureCategoryPathForSuggestion(path: string[]) {
+export async function ensureCategoryPathForSuggestion(path: string[], ownerUserId: string) {
   const supabaseAdmin = getSupabaseAdmin();
   const { data: categories, error: categoriesError } = await supabaseAdmin
     .from("categories")
-    .select("id,name,parent_id");
+    .select("id,name,parent_id,owner_user_id")
+    .eq("owner_user_id", ownerUserId);
   if (categoriesError) throw new Error(categoriesError.message);
 
   const categoryCache = new Map<string, CategoryForClassification>();
@@ -197,11 +201,11 @@ export async function ensureCategoryPathForSuggestion(path: string[]) {
     categoryCache.set(categoryKey(category.parent_id, category.name), category);
   }
 
-  const leafCategory = await ensureCategoryPath(supabaseAdmin, normalizePath(path), categoryCache);
+  const leafCategory = await ensureCategoryPath(supabaseAdmin, normalizePath(path), categoryCache, ownerUserId);
   return leafCategory;
 }
 
-export async function createClassificationRun() {
+export async function createClassificationRun(ownerUserId: string) {
   const supabaseAdmin = getSupabaseAdmin();
   const model = process.env.OPENAI_MODEL ?? "gpt-5.5";
   const openAiApiKey = process.env.OPENAI_API_KEY;
@@ -214,10 +218,12 @@ export async function createClassificationRun() {
     supabaseAdmin
       .from("technical_notes")
       .select("id,title,tags,content,category_id")
+      .eq("owner_user_id", ownerUserId)
       .order("created_at", { ascending: false }),
     supabaseAdmin
       .from("categories")
       .select("id,name,parent_id")
+      .eq("owner_user_id", ownerUserId)
       .order("name", { ascending: true }),
   ]);
 
@@ -290,7 +296,7 @@ export async function createClassificationRun() {
 
   const { data: run, error: runError } = await supabaseAdmin
     .from("ai_classification_runs")
-    .insert({ model, prompt_version: "v1" })
+    .insert({ model, prompt_version: "v1", owner_user_id: ownerUserId })
     .select("id,status,model,prompt_version,created_at,applied_at")
     .single();
   if (runError) throw new Error(runError.message);
@@ -311,19 +317,27 @@ export async function createClassificationRun() {
   };
 }
 
-export async function applyClassificationRun(runId: string) {
+export async function applyClassificationRun(runId: string, ownerUserId: string) {
   const supabaseAdmin = getSupabaseAdmin();
-  const [{ data: classifications, error: classificationsError }, { data: categories, error: categoriesError }] =
+  const [{ data: existingRun }, { data: classifications, error: classificationsError }, { data: categories, error: categoriesError }] =
     await Promise.all([
+      supabaseAdmin
+        .from("ai_classification_runs")
+        .select("id")
+        .eq("id", runId)
+        .eq("owner_user_id", ownerUserId)
+        .maybeSingle(),
       supabaseAdmin
         .from("note_ai_classifications")
         .select("id,run_id,note_id,suggested_path,existing_category_id,confidence,reason,applied")
         .eq("run_id", runId),
       supabaseAdmin
         .from("categories")
-        .select("id,name,parent_id"),
+        .select("id,name,parent_id")
+        .eq("owner_user_id", ownerUserId),
     ]);
 
+  if (!existingRun) throw new Error("Classification run not found.");
   if (classificationsError) throw new Error(classificationsError.message);
   if (categoriesError) throw new Error(categoriesError.message);
   if (!classifications || classifications.length === 0) {
@@ -336,11 +350,12 @@ export async function applyClassificationRun(runId: string) {
   }
 
   for (const classification of classifications as SavedClassification[]) {
-    const leafCategory = await ensureCategoryPath(supabaseAdmin, normalizePath(classification.suggested_path), categoryCache);
+    const leafCategory = await ensureCategoryPath(supabaseAdmin, normalizePath(classification.suggested_path), categoryCache, ownerUserId);
     await supabaseAdmin
       .from("technical_notes")
       .update({ category_id: leafCategory.id, updated_at: new Date().toISOString() })
-      .eq("id", classification.note_id);
+      .eq("id", classification.note_id)
+      .eq("owner_user_id", ownerUserId);
     await supabaseAdmin
       .from("note_ai_classifications")
       .update({ existing_category_id: leafCategory.id, applied: true })
@@ -422,7 +437,8 @@ function enrichClassifications(classifications: SavedClassification[], notes: No
 async function ensureCategoryPath(
   supabaseAdmin: ReturnType<typeof getSupabaseAdmin>,
   path: string[],
-  categoryCache: Map<string, CategoryForClassification>
+  categoryCache: Map<string, CategoryForClassification>,
+  ownerUserId: string
 ) {
   let parentId: string | null = null;
   let current: CategoryForClassification | undefined;
@@ -437,6 +453,7 @@ async function ensureCategoryPath(
         .insert({
           name,
           parent_id: parentId,
+          owner_user_id: ownerUserId,
           ai_generated: true,
         })
         .select("id,name,parent_id")

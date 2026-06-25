@@ -2,9 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Category, supabase, TechnicalNote } from "@/lib/supabase";
+import { Category, TechnicalNote } from "@/lib/supabase";
 
-const NOTE_SELECT = "*, categories(id, name)";
 const EMPTY_FORM = { title: "", category_id: "", tags: "", source_url: "", content: "" };
 
 type CategorySuggestion = {
@@ -30,49 +29,46 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
+  const [currentUser, setCurrentUser] = useState<{ user_id: string | null; email: string; role: string } | null>(null);
+
+  async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(url, init);
+    const body = await response.json();
+    if (response.status === 401) {
+      window.location.assign("/login");
+      throw new Error("Unauthorized");
+    }
+    if (!response.ok) {
+      throw new Error(body.error ?? "Request failed.");
+    }
+    return body as T;
+  }
 
   async function fetchNotes(q = "") {
-    let req = supabase
-      .from("technical_notes")
-      .select(NOTE_SELECT)
-      .order("created_at", { ascending: false });
-
-    const trimmedQuery = q.trim();
-    if (trimmedQuery) {
-      const { data: matchingCategories } = await supabase
-        .from("categories")
-        .select("id")
-        .ilike("name", `%${trimmedQuery}%`);
-      const categoryIds = matchingCategories?.map((category) => category.id) ?? [];
-      const categoryFilter = categoryIds.length > 0
-        ? `,category_id.in.(${categoryIds.join(",")})`
-        : "";
-
-      req = req.or(`title.ilike.%${trimmedQuery}%,content.ilike.%${trimmedQuery}%${categoryFilter}`);
-    }
-
-    const { data } = await req;
-    setNotes(data ?? []);
+    const params = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
+    const body = await requestJson<{ notes: TechnicalNote[] }>(`/api/notes${params}`);
+    setNotes(body.notes);
   }
 
   useEffect(() => {
     let isMounted = true;
 
     async function loadInitialData() {
-      const [{ data: noteData }, { data: categoryData }] = await Promise.all([
-        supabase
-          .from("technical_notes")
-          .select(NOTE_SELECT)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("categories")
-          .select("*")
-          .order("name", { ascending: true }),
+      const [{ user }, noteData, categoryData] = await Promise.all([
+        requestJson<{ user: { user_id: string | null; email: string; role: string } | null }>("/api/auth/me"),
+        requestJson<{ notes: TechnicalNote[] }>("/api/notes"),
+        requestJson<{ categories: Category[] }>("/api/categories"),
       ]);
 
+      if (!user) {
+        window.location.assign("/login");
+        return;
+      }
+
       if (isMounted) {
-        setNotes(noteData ?? []);
-        setCategories(categoryData ?? []);
+        setCurrentUser(user);
+        setNotes(noteData.notes);
+        setCategories(categoryData.categories);
       }
     }
 
@@ -145,12 +141,9 @@ export default function Home() {
   }
 
   async function fetchCategories() {
-    const { data } = await supabase
-      .from("categories")
-      .select("*")
-      .order("name", { ascending: true });
-    setCategories(data ?? []);
-    return data ?? [];
+    const body = await requestJson<{ categories: Category[] }>("/api/categories");
+    setCategories(body.categories);
+    return body.categories;
   }
 
   async function suggestNoteMetadata() {
@@ -222,15 +215,24 @@ export default function Home() {
 
   async function saveNoteWithMetadata(title: string, categoryId: string, tags = parseTags(form.tags)) {
     setSaving(true);
-    const { error: err } = await supabase.from("technical_notes").insert({
-      title,
-      category_id: categoryId,
-      tags,
-      content: form.content.trim(),
-      source_url: form.source_url.trim() || null,
-    });
+    let err = "";
+    try {
+      await requestJson<{ note: TechnicalNote }>("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          category_id: categoryId,
+          tags,
+          content: form.content.trim(),
+          source_url: form.source_url.trim() || null,
+        }),
+      });
+    } catch (reason) {
+      err = reason instanceof Error ? reason.message : "Save failed.";
+    }
     setSaving(false);
-    if (err) { setError(err.message); return false; }
+    if (err) { setError(err); return false; }
     setForm(EMPTY_FORM);
     setCategorySuggestion(null);
     setTitleSuggestionInput("");
@@ -307,9 +309,14 @@ export default function Home() {
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this note?")) return;
-    await supabase.from("technical_notes").delete().eq("id", id);
+    await requestJson(`/api/notes/${id}`, { method: "DELETE" });
     setSelected(null);
     fetchNotes(query);
+  }
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.assign("/login");
   }
 
   function formatDate(iso: string) {
@@ -374,9 +381,20 @@ export default function Home() {
     <main className="max-w-3xl mx-auto p-6 space-y-8">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-3xl font-bold">AI Technical Notes DB</h1>
-        <Link href="/categories" className="text-sm text-blue-600 hover:underline">
-          Manage Categories
-        </Link>
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          {currentUser && <span className="text-gray-500">{currentUser.user_id ?? currentUser.email}</span>}
+          <Link href="/categories" className="text-blue-600 hover:underline">
+            Manage Categories
+          </Link>
+          {currentUser?.role === "admin" && (
+            <Link href="/admin" className="text-blue-600 hover:underline">
+              Admin
+            </Link>
+          )}
+          <button onClick={handleLogout} className="text-gray-600 hover:underline">
+            Logout
+          </button>
+        </div>
       </header>
 
       {/* Search */}

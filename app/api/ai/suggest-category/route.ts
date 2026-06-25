@@ -1,7 +1,9 @@
 import { suggestCategoryForNote } from "@/lib/ai-classification";
+import { authErrorResponse, requireUser } from "@/lib/auth";
 
 export async function POST(request: Request) {
   try {
+    const user = await requireUser();
     const body = await request.json();
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const content = typeof body.content === "string" ? body.content.trim() : "";
@@ -13,10 +15,9 @@ export async function POST(request: Request) {
       return Response.json({ error: "Content is required." }, { status: 400 });
     }
 
-    const suggestion = await suggestCategoryForNote({ title, content, tags });
+    const suggestion = await suggestCategoryForNote({ title, content, tags, ownerUserId: user.id });
     return Response.json(suggestion);
   } catch (reason) {
-    const message = reason instanceof Error ? reason.message : "Unexpected error";
-    return Response.json({ error: message }, { status: 500 });
+    return authErrorResponse(reason);
   }
 }

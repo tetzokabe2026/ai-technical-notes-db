@@ -1,11 +1,12 @@
 import { createClassificationRun } from "@/lib/ai-classification";
+import { authErrorResponse, requireUser } from "@/lib/auth";
 
 export async function POST() {
   try {
-    const result = await createClassificationRun();
+    const user = await requireUser();
+    const result = await createClassificationRun(user.id);
     return Response.json(result);
   } catch (reason) {
-    const message = reason instanceof Error ? reason.message : "Unexpected error";
-    return Response.json({ error: message }, { status: 500 });
+    return authErrorResponse(reason);
   }
 }

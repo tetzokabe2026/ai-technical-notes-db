@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { Category, supabase } from "@/lib/supabase";
+import { Category } from "@/lib/supabase";
 
 type CategoryWithCount = Category & {
   noteCount: number;
@@ -24,16 +24,24 @@ export default function CategoriesPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(url, init);
+    const body = await response.json();
+    if (response.status === 401) {
+      window.location.assign("/login");
+      throw new Error("Unauthorized");
+    }
+    if (!response.ok) {
+      throw new Error(body.error ?? "Request failed.");
+    }
+    return body as T;
+  }
+
   async function fetchCategories() {
-    const [{ data: categoryData }, { data: noteData }] = await Promise.all([
-      supabase
-        .from("categories")
-        .select("*")
-        .order("name", { ascending: true }),
-      supabase
-        .from("technical_notes")
-        .select("category_id"),
-    ]);
+    const { categories: categoryData, notes: noteData } = await requestJson<{
+      categories: Category[];
+      notes: Array<{ category_id: string | null }>;
+    }>("/api/categories");
 
     const counts = new Map<string, number>();
     for (const note of noteData ?? []) {
@@ -42,7 +50,7 @@ export default function CategoriesPage() {
       }
     }
 
-    const nextCategories = (categoryData ?? []).map((category) => ({
+    const nextCategories = categoryData.map((category) => ({
       ...category,
       noteCount: counts.get(category.id) ?? 0,
     }));
@@ -54,15 +62,10 @@ export default function CategoriesPage() {
     let isMounted = true;
 
     async function loadCategories() {
-      const [{ data: categoryData }, { data: noteData }] = await Promise.all([
-        supabase
-          .from("categories")
-          .select("*")
-          .order("name", { ascending: true }),
-        supabase
-          .from("technical_notes")
-          .select("category_id"),
-      ]);
+      const { categories: categoryData, notes: noteData } = await requestJson<{
+        categories: Category[];
+        notes: Array<{ category_id: string | null }>;
+      }>("/api/categories");
 
       if (!isMounted) return;
 
@@ -73,7 +76,7 @@ export default function CategoriesPage() {
         }
       }
 
-      const nextCategories = (categoryData ?? []).map((category) => ({
+      const nextCategories = categoryData.map((category) => ({
         ...category,
         noteCount: counts.get(category.id) ?? 0,
       }));
@@ -157,14 +160,20 @@ export default function CategoriesPage() {
     }
 
     setSaving(true);
-    const { error: createError } = await supabase.from("categories").insert({
-      name,
-      parent_id: newParentId || null,
-    });
+    let createError = "";
+    try {
+      await requestJson("/api/categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, parent_id: newParentId || null }),
+      });
+    } catch (reason) {
+      createError = reason instanceof Error ? reason.message : "Create failed.";
+    }
     setSaving(false);
 
     if (createError) {
-      setError(duplicateMessage(createError.message));
+      setError(duplicateMessage(createError));
       return;
     }
 
@@ -197,14 +206,20 @@ export default function CategoriesPage() {
     }
 
     setSaving(true);
-    const { error: updateError } = await supabase
-      .from("categories")
-      .update({ name, updated_at: new Date().toISOString() })
-      .eq("id", categoryId);
+    let updateError = "";
+    try {
+      await requestJson(`/api/categories/${categoryId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+    } catch (reason) {
+      updateError = reason instanceof Error ? reason.message : "Update failed.";
+    }
     setSaving(false);
 
     if (updateError) {
-      setError(duplicateMessage(updateError.message));
+      setError(duplicateMessage(updateError));
       return;
     }
 
@@ -219,13 +234,15 @@ export default function CategoriesPage() {
     if (!confirmed) return;
 
     setError("");
-    const { error: deleteError } = await supabase
-      .from("categories")
-      .delete()
-      .eq("id", category.id);
+    let deleteError = "";
+    try {
+      await requestJson(`/api/categories/${category.id}`, { method: "DELETE" });
+    } catch (reason) {
+      deleteError = reason instanceof Error ? reason.message : "Delete failed.";
+    }
 
     if (deleteError) {
-      setError(deleteError.message);
+      setError(deleteError);
       return;
     }
 
