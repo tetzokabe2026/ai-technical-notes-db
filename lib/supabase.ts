@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 
 export type Category = {
   id: string;
+  owner_user_id: string | null;
   name: string;
   parent_id: string | null;
   description: string | null;
@@ -12,6 +13,7 @@ export type Category = {
 
 export type TechnicalNote = {
   id: string;
+  owner_user_id: string | null;
   title: string;
   category_id: string | null;
   categories: Pick<Category, "id" | "name"> | null;
