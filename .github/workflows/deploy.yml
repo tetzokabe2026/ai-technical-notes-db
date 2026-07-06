@@ -1,0 +1,67 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECT_ID: jupiter-sweeper-2026
+  REGION: asia-northeast1
+  SERVICE: ai-technical-notes-db
+  REPOSITORY: ai-notes
+  IMAGE_NAME: ai-technical-notes-db
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push Docker image
+        env:
+          IMAGE_URI: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}
+        run: |
+          docker build \
+            --build-arg NEXT_PUBLIC_SUPABASE_URL="${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" \
+            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" \
+            -t "${IMAGE_URI}:${{ github.sha }}" \
+            -t "${IMAGE_URI}:latest" \
+            .
+          docker push "${IMAGE_URI}:${{ github.sha }}"
+          docker push "${IMAGE_URI}:latest"
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          flags: --allow-unauthenticated
+          env_vars: |
+            NEXT_PUBLIC_APP_URL=${{ secrets.NEXT_PUBLIC_APP_URL }}
+            OPENAI_MODEL=gpt-5.5
+          secrets: |
+            SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest
+            OPENAI_API_KEY=openai-api-key:latest
