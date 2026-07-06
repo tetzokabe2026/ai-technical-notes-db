@@ -1,5 +1,11 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## ⚠️ 重要：認証機能追加後のデータ復元について
+
+認証機能（v1.3）を追加した後、以前のデータが見えなくなった場合は、**[DATA_RECOVERY.md](./DATA_RECOVERY.md)** を参照してください。
+
+データは削除されておらず、復元可能です。詳しい手順と原因については、上記のドキュメントをご確認ください。
+
 ## Getting Started
 
 First, run the development server:
