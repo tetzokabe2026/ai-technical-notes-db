@@ -1,8 +1,17 @@
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { getSupabaseAuthClient } from "@/lib/supabase-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 import { getAppOrigin } from "@/lib/url";
 
+// 3 password-reset requests per hour per IP
+const RESET_MAX = 3;
+const RESET_WINDOW_MS = 60 * 60 * 1000;
+
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
+  const { allowed, retryAfter } = checkRateLimit(`password-reset:${ip}`, RESET_MAX, RESET_WINDOW_MS);
+  if (!allowed) return rateLimitResponse(retryAfter!);
+
   try {
     const body = await request.json();
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";

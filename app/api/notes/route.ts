@@ -24,7 +24,9 @@ export async function GET(request: Request) {
         .ilike("name", `%${q}%`);
       const categoryIds = matchingCategories?.map((category) => category.id) ?? [];
       const categoryFilter = categoryIds.length > 0 ? `,category_id.in.(${categoryIds.join(",")})` : "";
-      req = req.or(`title.ilike.%${q}%,content.ilike.%${q}%${categoryFilter}`);
+      // tags is text[] — use PostgREST cs (contains set) with normalized lowercase query
+      const tagFilter = `,tags.cs.{${q.toLowerCase()}}`;
+      req = req.or(`title.ilike.%${q}%,content.ilike.%${q}%${tagFilter}${categoryFilter}`);
     }
 
     const { data, error } = await req;
@@ -43,7 +45,12 @@ export async function POST(request: Request) {
     const content = typeof body.content === "string" ? body.content.trim() : "";
     const categoryId = typeof body.category_id === "string" && body.category_id ? body.category_id : null;
     const sourceUrl = typeof body.source_url === "string" && body.source_url.trim() ? body.source_url.trim() : null;
-    const tags = Array.isArray(body.tags) ? body.tags.filter((tag: unknown): tag is string => typeof tag === "string") : [];
+    const tags = Array.isArray(body.tags)
+      ? body.tags
+          .filter((tag: unknown): tag is string => typeof tag === "string")
+          .map((tag: string) => tag.toLowerCase().trim())
+          .filter(Boolean)
+      : [];
 
     if (!title || !content) {
       return Response.json({ error: "Title and content are required." }, { status: 400 });

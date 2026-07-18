@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "crypto";
 import { cookies } from "next/headers";
+import { getSupabaseAuthClient } from "@/lib/supabase-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 
 export type AppUser = {
@@ -55,23 +56,56 @@ export async function clearSessionCookie() {
   cookieStore.delete(REFRESH_TOKEN_COOKIE);
 }
 
-export async function getCurrentUser(): Promise<AppUser | null> {
-  const cookieStore = await cookies();
-  const accessToken = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value;
-  if (!accessToken) return null;
-
+async function lookupAppUser(authUserId: string): Promise<AppUser | null> {
   const supabase = getSupabaseAdmin();
-  const { data: authData, error: authError } = await supabase.auth.getUser(accessToken);
-  if (authError || !authData.user) return null;
-
   const { data: user } = await supabase
     .from("app_users")
     .select("id,auth_user_id,email,user_id,role,status")
-    .eq("auth_user_id", authData.user.id)
+    .eq("auth_user_id", authUserId)
     .maybeSingle();
 
   if (!user || user.status !== "approved") return null;
   return user as AppUser;
+}
+
+async function refreshSessionFromCookies(): Promise<string | null> {
+  const cookieStore = await cookies();
+  const refreshToken = cookieStore.get(REFRESH_TOKEN_COOKIE)?.value;
+  if (!refreshToken) return null;
+
+  const supabase = getSupabaseAuthClient();
+  const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+  if (error || !data.session) {
+    await clearSessionCookie();
+    return null;
+  }
+
+  await setSupabaseSessionCookies(data.session);
+  return data.session.access_token;
+}
+
+export async function getCurrentUser(): Promise<AppUser | null> {
+  const cookieStore = await cookies();
+  let accessToken: string | null = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value ?? null;
+
+  const supabase = getSupabaseAdmin();
+  let authData: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"] | null = null;
+
+  if (accessToken) {
+    const { data, error } = await supabase.auth.getUser(accessToken);
+    if (!error && data.user) authData = data;
+  }
+
+  if (!authData?.user) {
+    accessToken = await refreshSessionFromCookies();
+    if (!accessToken) return null;
+
+    const { data, error } = await supabase.auth.getUser(accessToken);
+    if (error || !data.user) return null;
+    authData = data;
+  }
+
+  return lookupAppUser(authData.user.id);
 }
 
 export async function requireUser() {

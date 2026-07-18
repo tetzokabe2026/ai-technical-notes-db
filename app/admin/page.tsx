@@ -19,6 +19,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
+  const [setupUrl, setSetupUrl] = useState<string | null>(null);
 
   async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     const response = await fetch(url, init);
@@ -76,8 +77,15 @@ export default function AdminPage() {
     try {
       if (action === "delete") {
         await requestJson(`/api/admin/users/${user.id}`, { method: "DELETE" });
+        setSetupUrl(null);
+      } else if (action === "approve") {
+        const body = await requestJson<{ ok: boolean; setupUrl?: string }>(`/api/admin/users/${user.id}/${action}`, {
+          method: "POST",
+        });
+        setSetupUrl(body.setupUrl ?? null);
       } else {
         await requestJson(`/api/admin/users/${user.id}/${action}`, { method: "POST" });
+        setSetupUrl(null);
       }
       await loadUsers();
     } catch (reason) {
@@ -105,6 +113,26 @@ export default function AdminPage() {
       </header>
 
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+
+      {setupUrl && (
+        <section className="mt-4 rounded border border-amber-200 bg-amber-50 p-4 text-sm">
+          <p className="font-medium text-amber-900">初回セットアップリンクをユーザーに共有してください。</p>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              className="min-w-0 flex-1 rounded border bg-white px-3 py-2 font-mono text-xs"
+              readOnly
+              value={setupUrl}
+            />
+            <button
+              className="rounded bg-amber-700 px-4 py-2 text-xs text-white hover:bg-amber-800"
+              onClick={() => void navigator.clipboard.writeText(setupUrl)}
+              type="button"
+            >
+              コピー
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="mt-6 overflow-x-auto">
         <table className="w-full min-w-[920px] border-collapse text-left text-sm">

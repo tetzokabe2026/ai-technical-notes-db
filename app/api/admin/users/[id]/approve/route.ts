@@ -9,41 +9,71 @@ export async function POST(request: Request, context: RouteContext<"/api/admin/u
     const setupToken = randomToken();
     const setupExpiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
     const supabase = getSupabaseAdmin();
-    const { data: user, error } = await supabase
+
+    const { data: user, error: fetchError } = await supabase
+      .from("app_users")
+      .select("email,auth_user_id,user_id,status")
+      .eq("id", id)
+      .single();
+    if (fetchError) throw new Error(fetchError.message);
+
+    if (user.status !== "pending" && user.status !== "rejected") {
+      return Response.json({ error: "申請中または却下済みのユーザーのみ承認できます。" }, { status: 400 });
+    }
+
+    let authUserId = user.auth_user_id;
+    let setupUrl: string | undefined;
+    let invitedAuthUserId: string | null = null;
+
+    if (!authUserId) {
+      const { data: inviteData, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(user.email, {
+        redirectTo: `${getAppOrigin(request)}/setup?token=${setupToken}`,
+      });
+      if (inviteError || !inviteData.user) {
+        const { data: existingUsers, error: listError } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+        if (listError) throw new Error(inviteError?.message ?? listError.message);
+        const existingAuthUser = existingUsers.users.find(
+          (authUser) => authUser.email?.toLowerCase() === user.email.toLowerCase(),
+        );
+        if (!existingAuthUser) {
+          throw new Error(inviteError?.message ?? "招待ユーザーを作成できませんでした。");
+        }
+        authUserId = existingAuthUser.id;
+      } else {
+        invitedAuthUserId = inviteData.user.id;
+        authUserId = inviteData.user.id;
+      }
+    } else {
+      const { error: unbanError } = await supabase.auth.admin.updateUserById(authUserId, {
+        ban_duration: "none",
+      });
+      if (unbanError) throw new Error(unbanError.message);
+    }
+
+    if (!user.user_id && authUserId && !invitedAuthUserId) {
+      setupUrl = `${getAppOrigin(request)}/setup?token=${setupToken}`;
+    }
+
+    const { error: updateError } = await supabase
       .from("app_users")
       .update({
         status: "approved",
+        auth_user_id: authUserId,
         approved_at: new Date().toISOString(),
         rejected_at: null,
         setup_token_hash: hashToken(setupToken),
         setup_token_expires_at: setupExpiresAt.toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", id)
-      .select("email,auth_user_id")
-      .single();
-    if (error) throw new Error(error.message);
-
-    if (user.auth_user_id) {
-      await supabase.auth.admin.updateUserById(user.auth_user_id, {
-        ban_duration: "none",
-      });
-    }
-
-    if (!user.auth_user_id) {
-      const { data: inviteData, error: inviteError } = await supabase.auth.admin.inviteUserByEmail(user.email, {
-        redirectTo: `${getAppOrigin(request)}/setup?token=${setupToken}`,
-      });
-      if (inviteError) throw new Error(inviteError.message);
-      if (inviteData.user) {
-        await supabase
-          .from("app_users")
-          .update({ auth_user_id: inviteData.user.id, updated_at: new Date().toISOString() })
-          .eq("id", id);
+      .eq("id", id);
+    if (updateError) {
+      if (invitedAuthUserId) {
+        await supabase.auth.admin.deleteUser(invitedAuthUserId);
       }
+      throw new Error(updateError.message);
     }
 
-    return Response.json({ ok: true });
+    return Response.json({ ok: true, ...(setupUrl ? { setupUrl } : {}) });
   } catch (reason) {
     return authErrorResponse(reason);
   }
