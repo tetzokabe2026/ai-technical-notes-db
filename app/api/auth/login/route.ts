@@ -1,8 +1,17 @@
 import { setSupabaseSessionCookies } from "@/lib/auth";
+import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 import { createClient } from "@supabase/supabase-js";
 
+// 5 attempts per 15 minutes per IP
+const LOGIN_MAX = 5;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
+  const { allowed, retryAfter } = checkRateLimit(`login:${ip}`, LOGIN_MAX, LOGIN_WINDOW_MS);
+  if (!allowed) return rateLimitResponse(retryAfter!);
+
   try {
     const body = await request.json();
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";

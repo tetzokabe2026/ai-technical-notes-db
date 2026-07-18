@@ -98,7 +98,7 @@ GitHub (push to main)
   -> Supabase / OpenAI / Resend
 ```
 
-セットアップ手順は [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) を参照してください。
+システムの責務境界・認証・CI/CD の構成は [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)、セットアップ手順は [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) を参照してください。
 
 Cloud Run の主な環境変数・シークレットは以下です。
 
