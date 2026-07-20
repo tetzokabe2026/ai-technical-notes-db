@@ -3,8 +3,6 @@ import { cookies } from "next/headers";
 import { getSupabaseAuthClient } from "@/lib/supabase-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 
-export async function getCurrentUser(request: Request) {
-
 export type AppUser = {
   id: string;
   auth_user_id: string | null;
