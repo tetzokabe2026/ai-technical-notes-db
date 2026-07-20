@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import { getSupabaseAuthClient } from "@/lib/supabase-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 
+export async function getCurrentUser(request: Request) {
+
 export type AppUser = {
   id: string;
   auth_user_id: string | null;
@@ -88,13 +90,17 @@ export async function getCurrentUser(): Promise<AppUser | null> {
   const cookieStore = await cookies();
   let accessToken: string | null = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value ?? null;
 
+ 
   const supabase = getSupabaseAdmin();
   let authData: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"] | null = null;
 
   if (accessToken) {
     const { data, error } = await supabase.auth.getUser(accessToken);
+    
+    
     if (!error && data.user) authData = data;
   }
+
 
   if (!authData?.user) {
     accessToken = await refreshSessionFromCookies();
