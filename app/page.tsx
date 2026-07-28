@@ -216,8 +216,9 @@ export default function Home() {
   async function saveNoteWithMetadata(title: string, categoryId: string, tags = parseTags(form.tags)) {
     setSaving(true);
     let err = "";
+    let savedNote: TechnicalNote | null = null;
     try {
-      await requestJson<{ note: TechnicalNote }>("/api/notes", {
+      const body = await requestJson<{ note: TechnicalNote }>("/api/notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -228,6 +229,7 @@ export default function Home() {
           source_url: form.source_url.trim() || null,
         }),
       });
+      savedNote = body.note;
     } catch (reason) {
       err = reason instanceof Error ? reason.message : "Save failed.";
     }
@@ -239,7 +241,8 @@ export default function Home() {
     setCategorySuggestionInput("");
     setTagSuggestionInput("");
     setSuggestionDialogOpen(false);
-    fetchNotes(query);
+    await fetchNotes(query);
+    if (savedNote) setSelected(savedNote);
     return true;
   }
 
@@ -340,6 +343,18 @@ export default function Home() {
     return path.join(" > ");
   }
 
+  function stars(n: number) {
+    return "⭐️".repeat(n);
+  }
+
+  function hasRatings(note: TechnicalNote) {
+    return (
+      typeof note.rating_usefulness === "number"
+      && typeof note.rating_importance === "number"
+      && typeof note.rating_credibility === "number"
+    );
+  }
+
   const categoryOptions = [...categories].sort((a, b) =>
     getCategoryPath(a.id).localeCompare(getCategoryPath(b.id))
   );
@@ -354,7 +369,9 @@ export default function Home() {
         </button>
         <h1 className="text-2xl font-bold mb-2">{selected.title}</h1>
         <div className="flex gap-3 text-sm text-gray-500 mb-4 flex-wrap">
-          {selectedCategoryPath && <span className="bg-gray-100 px-2 py-0.5 rounded">{selectedCategoryPath}</span>}
+          {selectedCategoryPath && (
+            <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-800">{selectedCategoryPath}</span>
+          )}
           {selected.tags.map((t) => (
             <span key={t} className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">#{t}</span>
           ))}
@@ -366,7 +383,17 @@ export default function Home() {
             {selected.source_url}
           </a>
         )}
-        <pre className="whitespace-pre-wrap bg-gray-50 p-4 rounded text-sm leading-relaxed mb-6">
+        {hasRatings(selected) && (
+          <section className="mb-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span className="font-semibold text-gray-700">Ratings</span>
+              <span>Usefulness {stars(selected.rating_usefulness!)}</span>
+              <span>Importance {stars(selected.rating_importance!)}</span>
+              <span>Credibility {stars(selected.rating_credibility!)}</span>
+            </div>
+          </section>
+        )}
+        <pre className="mb-6 whitespace-pre-wrap rounded bg-gray-50 p-4 text-sm leading-relaxed text-gray-900">
           {selected.content}
         </pre>
         <button onClick={() => handleDelete(selected.id)}
@@ -441,10 +468,19 @@ export default function Home() {
           <textarea className="border rounded px-3 py-2 w-full text-sm h-32" placeholder="Content *"
             value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} />
           {error && <p className="text-red-600 text-sm">{error}</p>}
+          {saving && (
+            <div className="flex items-center gap-2 text-sm text-gray-600" role="status" aria-live="polite">
+              <span
+                className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"
+                aria-hidden="true"
+              />
+              <span>Saving and evaluating note…</span>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             <button onClick={handleSave} disabled={saving || suggesting}
               className="px-6 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50">
-              {saving ? "Saving..." : suggesting ? "Choosing category..." : "Save"}
+              {saving ? "Saving and evaluating…" : suggesting ? "Choosing category..." : "Save"}
             </button>
           </div>
         </div>
@@ -487,7 +523,16 @@ export default function Home() {
             {categorySuggestion?.reason && (
               <p className="mt-2 text-xs text-gray-500">{categorySuggestion.reason}</p>
             )}
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
+            <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
+              {saving && (
+                <div className="mr-auto flex items-center gap-2 text-sm text-gray-600" role="status" aria-live="polite">
+                  <span
+                    className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"
+                    aria-hidden="true"
+                  />
+                  <span>Saving and evaluating note…</span>
+                </div>
+              )}
               <button
                 className="rounded border px-4 py-2 text-sm hover:bg-gray-50"
                 onClick={() => {
@@ -504,13 +549,14 @@ export default function Home() {
                 className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
                 disabled={
                   suggesting
+                  || saving
                   || titleSuggestionInput.trim().length === 0
                   || categorySuggestionInput.trim().length === 0
                   || parseConfirmedTags(tagSuggestionInput).length !== 3
                 }
                 onClick={useSuggestedMetadata}
               >
-                {suggesting || saving ? "Saving..." : "OK"}
+                {suggesting || saving ? "Saving and evaluating…" : "OK"}
               </button>
             </div>
           </div>
@@ -526,15 +572,27 @@ export default function Home() {
             <div key={note.id}
               className="border rounded p-4 cursor-pointer hover:bg-gray-50"
               onClick={() => setSelected(note)}>
-              <div className="flex flex-col gap-1 sm:flex-row sm:justify-between sm:items-start">
-                <h3 className="font-semibold">{note.title}</h3>
-                <span className="text-xs text-gray-400 sm:ml-4 shrink-0">
-                  Created Date: {formatDate(note.created_at)}
-                </span>
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="min-w-0 flex-1 font-semibold">{note.title}</h3>
+                {hasRatings(note) && (
+                  <div
+                    className="shrink-0 pt-0.5 text-[11px] leading-none text-gray-500"
+                    title={`Usefulness ${note.rating_usefulness} / Importance ${note.rating_importance} / Credibility ${note.rating_credibility}`}
+                  >
+                    {stars(note.rating_usefulness!)}
+                    <span className="mx-1 text-gray-400">·</span>
+                    {stars(note.rating_importance!)}
+                    <span className="mx-1 text-gray-400">·</span>
+                    {stars(note.rating_credibility!)}
+                  </div>
+                )}
+              </div>
+              <div className="mt-1 text-xs text-gray-400">
+                Created Date: {formatDate(note.created_at)}
               </div>
               <div className="flex gap-2 mt-1 flex-wrap">
                 {getCategoryPath(note.category_id) && (
-                  <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{getCategoryPath(note.category_id)}</span>
+                  <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-800">{getCategoryPath(note.category_id)}</span>
                 )}
                 {note.tags.map((t) => (
                   <span key={t} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">#{t}</span>
