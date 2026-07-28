@@ -1,5 +1,4 @@
-const DEFAULT_RATING_API_URL =
-  "https://evaluation-mock-api-47730621722.asia-northeast1.run.app";
+import { createEvaluation, EvaluationMockApiError } from "@/lib/evaluation-mock-api";
 
 const MIN_BODY_LENGTH = 20;
 const MAX_BODY_LENGTH = 255;
@@ -17,53 +16,20 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getRatingApiBaseUrl() {
-  return (process.env.NOTE_RATING_API_URL ?? DEFAULT_RATING_API_URL).replace(/\/$/, "");
-}
-
 function normalizeBody(content: string): string | null {
   const trimmed = content.trim().slice(0, MAX_BODY_LENGTH);
   if (trimmed.length < MIN_BODY_LENGTH) return null;
   return trimmed;
 }
 
-function isValidScore(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 5;
-}
-
-function parseRatings(payload: unknown): NoteRatings | null {
-  if (!payload || typeof payload !== "object") return null;
-  const data = payload as Record<string, unknown>;
-  const evalId = data["eval-id"];
-  if (typeof evalId !== "string" || !evalId) return null;
-  if (!isValidScore(data.usefulness) || !isValidScore(data.importance) || !isValidScore(data.credibility)) {
-    return null;
-  }
-  return {
-    evalId,
-    usefulness: data.usefulness,
-    importance: data.importance,
-    credibility: data.credibility,
-  };
-}
-
 async function requestRatingsOnce(body: string): Promise<NoteRatings> {
-  const response = await fetch(`${getRatingApiBaseUrl()}/evaluations`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ body }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Rating API returned ${response.status}`);
-  }
-
-  const payload = await response.json();
-  const ratings = parseRatings(payload);
-  if (!ratings) {
-    throw new Error("Rating API returned an invalid payload");
-  }
-  return ratings;
+  const evaluation = await createEvaluation({ body });
+  return {
+    evalId: evaluation["eval-id"],
+    usefulness: evaluation.usefulness,
+    importance: evaluation.importance,
+    credibility: evaluation.credibility,
+  };
 }
 
 export async function fetchNoteRatings(content: string): Promise<NoteRatings | null> {
@@ -75,7 +41,12 @@ export async function fetchNoteRatings(content: string): Promise<NoteRatings | n
     try {
       return await requestRatingsOnce(body);
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : String(reason);
+      const message =
+        reason instanceof EvaluationMockApiError
+          ? `${reason.status}: ${reason.message}`
+          : reason instanceof Error
+            ? reason.message
+            : String(reason);
       console.error(`fetchNoteRatings attempt ${attempt}/${maxAttempts} failed:`, message);
       if (attempt >= maxAttempts) return null;
       await sleep(RETRY_DELAY_MS);
