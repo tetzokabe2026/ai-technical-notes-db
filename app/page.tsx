@@ -2,62 +2,73 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Category, supabase, TechnicalNote } from "@/lib/supabase";
+import { Category, TechnicalNote } from "@/lib/supabase";
 
-const NOTE_SELECT = "*, categories(id, name)";
 const EMPTY_FORM = { title: "", category_id: "", tags: "", source_url: "", content: "" };
+
+type CategorySuggestion = {
+  suggested_title: string;
+  suggested_path: string[];
+  suggested_tags: string[];
+  existing_category_id: string | null;
+  confidence: number | null;
+  reason: string | null;
+};
 
 export default function Home() {
   const [notes, setNotes] = useState<TechnicalNote[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [categorySuggestion, setCategorySuggestion] = useState<CategorySuggestion | null>(null);
+  const [titleSuggestionInput, setTitleSuggestionInput] = useState("");
+  const [categorySuggestionInput, setCategorySuggestionInput] = useState("");
+  const [tagSuggestionInput, setTagSuggestionInput] = useState("");
+  const [suggestionDialogOpen, setSuggestionDialogOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<TechnicalNote | null>(null);
   const [saving, setSaving] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
+  const [currentUser, setCurrentUser] = useState<{ user_id: string | null; email: string; role: string } | null>(null);
+
+  async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+    const response = await fetch(url, init);
+    const body = await response.json();
+    if (response.status === 401) {
+      window.location.assign("/login");
+      throw new Error("Unauthorized");
+    }
+    if (!response.ok) {
+      throw new Error(body.error ?? "Request failed.");
+    }
+    return body as T;
+  }
 
   async function fetchNotes(q = "") {
-    let req = supabase
-      .from("technical_notes")
-      .select(NOTE_SELECT)
-      .order("created_at", { ascending: false });
-
-    const trimmedQuery = q.trim();
-    if (trimmedQuery) {
-      const { data: matchingCategories } = await supabase
-        .from("categories")
-        .select("id")
-        .ilike("name", `%${trimmedQuery}%`);
-      const categoryIds = matchingCategories?.map((category) => category.id) ?? [];
-      const categoryFilter = categoryIds.length > 0
-        ? `,category_id.in.(${categoryIds.join(",")})`
-        : "";
-
-      req = req.or(`title.ilike.%${trimmedQuery}%,content.ilike.%${trimmedQuery}%${categoryFilter}`);
-    }
-
-    const { data } = await req;
-    setNotes(data ?? []);
+    const params = q.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
+    const body = await requestJson<{ notes: TechnicalNote[] }>(`/api/notes${params}`);
+    setNotes(body.notes);
   }
 
   useEffect(() => {
     let isMounted = true;
 
     async function loadInitialData() {
-      const [{ data: noteData }, { data: categoryData }] = await Promise.all([
-        supabase
-          .from("technical_notes")
-          .select(NOTE_SELECT)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("categories")
-          .select("*")
-          .order("name", { ascending: true }),
+      const [{ user }, noteData, categoryData] = await Promise.all([
+        requestJson<{ user: { user_id: string | null; email: string; role: string } | null }>("/api/auth/me"),
+        requestJson<{ notes: TechnicalNote[] }>("/api/notes"),
+        requestJson<{ categories: Category[] }>("/api/categories"),
       ]);
 
+      if (!user) {
+        window.location.assign("/login");
+        return;
+      }
+
       if (isMounted) {
-        setNotes(noteData ?? []);
-        setCategories(categoryData ?? []);
+        setCurrentUser(user);
+        setNotes(noteData.notes);
+        setCategories(categoryData.categories);
       }
     }
 
@@ -71,38 +82,286 @@ export default function Home() {
   function handleSearch() { fetchNotes(query); }
   function handleClear() { setQuery(""); fetchNotes(); }
 
-  async function handleSave() {
+  function parseTags(value: string) {
+    return value ? value.split(",").map((t) => t.trim()).filter(Boolean) : [];
+  }
+
+  function fallbackTitleFromContent(content: string) {
+    const firstLine = content
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) ?? "";
+
+    const sentence = firstLine.split(/[。.!?]/)[0]?.trim() || firstLine;
+    return sentence.length > 120 ? `${sentence.slice(0, 120)}...` : sentence;
+  }
+
+  function pathFromCategoryId(categoryId: string) {
+    const path = getCategoryPath(categoryId);
+    return path ? path.split(">").map((part) => part.trim()).filter(Boolean) : [];
+  }
+
+  function normalizeSuggestionPath(path: unknown) {
+    return Array.isArray(path)
+      ? path.filter((part): part is string => typeof part === "string").map((part) => part.trim()).filter(Boolean)
+      : [];
+  }
+
+  function normalizeTags(tags: unknown) {
+    if (!Array.isArray(tags)) return [];
+
+    return Array.from(new Set(
+      tags
+        .filter((tag): tag is string => typeof tag === "string")
+        .map((tag) => tag.replace(/^#+/, "").trim())
+        .filter(Boolean)
+    )).slice(0, 3);
+  }
+
+  function parseConfirmedTags(value: string) {
+    return normalizeTags(parseTags(value));
+  }
+
+  function fallbackTagsFromContent(content: string, title: string, categoryPath: string[]) {
+    const source = `${title} ${categoryPath.join(" ")} ${content}`;
+    const candidates = source
+      .split(/[\s,、。.!?;:；：()[\]{}"'「」『』<>/\\|]+/)
+      .map((word) => word.replace(/^#+/, "").trim())
+      .filter((word) => word.length >= 2 && word.length <= 30);
+    const tags = Array.from(new Set(candidates)).slice(0, 3);
+    const fallbackPool = [categoryPath.at(-1), categoryPath[0], "memo", "keyword"].filter((tag): tag is string => Boolean(tag));
+
+    for (const tag of fallbackPool) {
+      if (tags.length >= 3) break;
+      if (!tags.some((existing) => existing.toLowerCase() === tag.toLowerCase())) tags.push(tag);
+    }
+
+    return tags.slice(0, 3);
+  }
+
+  async function fetchCategories() {
+    const body = await requestJson<{ categories: Category[] }>("/api/categories");
+    setCategories(body.categories);
+    return body.categories;
+  }
+
+  async function suggestNoteMetadata() {
     setError("");
-    if (!form.title.trim() || !form.content.trim()) {
-      setError("Title and Content are required.");
+    if (!form.content.trim()) {
+      setError("Content is required before AI can suggest note metadata.");
+      return null;
+    }
+
+    setSuggesting(true);
+    let body: unknown = null;
+    let response: Response;
+    try {
+      response = await fetch("/api/ai/suggest-category", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: form.title.trim(),
+          tags: parseTags(form.tags),
+          content: form.content.trim(),
+        }),
+      });
+      body = await response.json();
+    } catch {
+      setSuggesting(false);
+      setError("AI metadata suggestion failed. Please try Save again.");
+      return null;
+    }
+    setSuggesting(false);
+
+    if (!response.ok) {
+      const message = body && typeof body === "object" && "error" in body && typeof body.error === "string"
+        ? body.error
+        : "AI metadata suggestion failed.";
+      setError(message);
+      return null;
+    }
+
+    const rawSuggestion = body as Partial<CategorySuggestion>;
+    const suggestedPath = normalizeSuggestionPath(rawSuggestion.suggested_path);
+    const categoryPath = suggestedPath.length > 0
+      ? suggestedPath
+      : form.category_id
+        ? pathFromCategoryId(form.category_id)
+        : ["Other"];
+    const suggestedTitle = typeof rawSuggestion.suggested_title === "string"
+      ? rawSuggestion.suggested_title.trim()
+      : "";
+    const title = form.title.trim() || suggestedTitle || fallbackTitleFromContent(form.content);
+    const suggestedTags = normalizeTags(rawSuggestion.suggested_tags);
+    const tags = suggestedTags.length === 3
+      ? suggestedTags
+      : fallbackTagsFromContent(form.content, title, categoryPath);
+    const suggestion: CategorySuggestion = {
+      suggested_title: title,
+      suggested_path: categoryPath,
+      suggested_tags: tags,
+      existing_category_id: rawSuggestion.existing_category_id ?? null,
+      confidence: typeof rawSuggestion.confidence === "number" ? rawSuggestion.confidence : null,
+      reason: typeof rawSuggestion.reason === "string" ? rawSuggestion.reason : "AI suggested missing note metadata.",
+    };
+    setCategorySuggestion(suggestion);
+    setTitleSuggestionInput(title);
+    setCategorySuggestionInput(categoryPath.join(" > "));
+    setTagSuggestionInput(tags.join(", "));
+    setSuggestionDialogOpen(true);
+    return suggestion;
+  }
+
+  async function saveNoteWithMetadata(title: string, categoryId: string, tags = parseTags(form.tags)) {
+    setSaving(true);
+    let err = "";
+    let savedNote: TechnicalNote | null = null;
+    try {
+      const body = await requestJson<{ note: TechnicalNote }>("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          category_id: categoryId,
+          tags,
+          content: form.content.trim(),
+          source_url: form.source_url.trim() || null,
+        }),
+      });
+      savedNote = body.note;
+    } catch (reason) {
+      err = reason instanceof Error ? reason.message : "Save failed.";
+    }
+    setSaving(false);
+    if (err) { setError(err); return false; }
+    setForm(EMPTY_FORM);
+    setCategorySuggestion(null);
+    setTitleSuggestionInput("");
+    setCategorySuggestionInput("");
+    setTagSuggestionInput("");
+    setSuggestionDialogOpen(false);
+    await fetchNotes(query);
+    if (savedNote) setSelected(savedNote);
+    return true;
+  }
+
+  async function useSuggestedMetadata() {
+    const title = titleSuggestionInput.trim();
+    const suggestedPath = categorySuggestionInput
+      .split(">")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const suggestedTags = parseConfirmedTags(tagSuggestionInput);
+
+    if (!title) {
+      setError("Title is required.");
       return;
     }
-    setSaving(true);
-    const { error: err } = await supabase.from("technical_notes").insert({
-      title: form.title.trim(),
-      category_id: form.category_id || null,
-      tags: form.tags ? form.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
-      content: form.content.trim(),
-      source_url: form.source_url.trim() || null,
+
+    if (suggestedPath.length === 0) {
+      setError("Category is required.");
+      return;
+    }
+
+    if (suggestedTags.length !== 3) {
+      setError("Three tags are required.");
+      return;
+    }
+
+    setError("");
+
+    const matchesOriginalSuggestion = categorySuggestion
+      && categorySuggestion.suggested_path.join(">").toLowerCase() === suggestedPath.join(">").toLowerCase();
+
+    if (matchesOriginalSuggestion && categorySuggestion.existing_category_id) {
+      await saveNoteWithMetadata(title, categorySuggestion.existing_category_id, suggestedTags);
+      return;
+    }
+
+    setSuggesting(true);
+    const response = await fetch("/api/categories/ensure-path", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: suggestedPath }),
     });
-    setSaving(false);
-    if (err) { setError(err.message); return; }
-    setForm(EMPTY_FORM);
-    fetchNotes(query);
+    const body = await response.json();
+    setSuggesting(false);
+
+    if (!response.ok) {
+      setError(body.error ?? "Could not create suggested category.");
+      return;
+    }
+
+    await fetchCategories();
+    await saveNoteWithMetadata(title, body.category.id, suggestedTags);
+  }
+
+  async function handleSave() {
+    setError("");
+    if (!form.content.trim()) {
+      setError("Content is required.");
+      return;
+    }
+    if (!form.title.trim() || !form.category_id || parseTags(form.tags).length < 3) {
+      await suggestNoteMetadata();
+      return;
+    }
+    await saveNoteWithMetadata(form.title.trim(), form.category_id);
   }
 
   async function handleDelete(id: string) {
     if (!confirm("Delete this note?")) return;
-    await supabase.from("technical_notes").delete().eq("id", id);
+    await requestJson(`/api/notes/${id}`, { method: "DELETE" });
     setSelected(null);
     fetchNotes(query);
+  }
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.assign("/login");
   }
 
   function formatDate(iso: string) {
     return new Date(iso).toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
   }
 
+  function getCategoryPath(categoryId: string | null) {
+    if (!categoryId) return "";
+
+    const byId = new Map(categories.map((category) => [category.id, category]));
+    const path: string[] = [];
+    let current = byId.get(categoryId);
+    let guard = 0;
+
+    while (current && guard < 20) {
+      path.unshift(current.name);
+      current = current.parent_id ? byId.get(current.parent_id) : undefined;
+      guard += 1;
+    }
+
+    return path.join(" > ");
+  }
+
+  function stars(n: number) {
+    return "⭐️".repeat(n);
+  }
+
+  function hasRatings(note: TechnicalNote) {
+    return (
+      typeof note.rating_usefulness === "number"
+      && typeof note.rating_importance === "number"
+      && typeof note.rating_credibility === "number"
+    );
+  }
+
+  const categoryOptions = [...categories].sort((a, b) =>
+    getCategoryPath(a.id).localeCompare(getCategoryPath(b.id))
+  );
+
   if (selected) {
+    const selectedCategoryPath = getCategoryPath(selected.category_id);
+
     return (
       <main className="max-w-3xl mx-auto p-6">
         <button onClick={() => setSelected(null)} className="mb-4 text-sm text-blue-600 hover:underline">
@@ -110,7 +369,9 @@ export default function Home() {
         </button>
         <h1 className="text-2xl font-bold mb-2">{selected.title}</h1>
         <div className="flex gap-3 text-sm text-gray-500 mb-4 flex-wrap">
-          {selected.categories && <span className="bg-gray-100 px-2 py-0.5 rounded">{selected.categories.name}</span>}
+          {selectedCategoryPath && (
+            <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-800">{selectedCategoryPath}</span>
+          )}
           {selected.tags.map((t) => (
             <span key={t} className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">#{t}</span>
           ))}
@@ -122,7 +383,17 @@ export default function Home() {
             {selected.source_url}
           </a>
         )}
-        <pre className="whitespace-pre-wrap bg-gray-50 p-4 rounded text-sm leading-relaxed mb-6">
+        {hasRatings(selected) && (
+          <section className="mb-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span className="font-semibold text-gray-700">Ratings</span>
+              <span>Usefulness {stars(selected.rating_usefulness!)}</span>
+              <span>Importance {stars(selected.rating_importance!)}</span>
+              <span>Credibility {stars(selected.rating_credibility!)}</span>
+            </div>
+          </section>
+        )}
+        <pre className="mb-6 whitespace-pre-wrap rounded bg-gray-50 p-4 text-sm leading-relaxed text-gray-900">
           {selected.content}
         </pre>
         <button onClick={() => handleDelete(selected.id)}
@@ -137,9 +408,20 @@ export default function Home() {
     <main className="max-w-3xl mx-auto p-6 space-y-8">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-3xl font-bold">AI Technical Notes DB</h1>
-        <Link href="/categories" className="text-sm text-blue-600 hover:underline">
-          Manage Categories
-        </Link>
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          {currentUser && <span className="text-gray-500">{currentUser.user_id ?? currentUser.email}</span>}
+          <Link href="/categories" className="text-blue-600 hover:underline">
+            Manage Categories
+          </Link>
+          {currentUser?.role === "admin" && (
+            <Link href="/admin" className="text-blue-600 hover:underline">
+              Admin
+            </Link>
+          )}
+          <button onClick={handleLogout} className="text-gray-600 hover:underline">
+            Logout
+          </button>
+        </div>
       </header>
 
       {/* Search */}
@@ -163,13 +445,20 @@ export default function Home() {
       <section>
         <h2 className="text-xl font-semibold mb-3">New Note</h2>
         <div className="space-y-3">
-          <input className="border rounded px-3 py-2 w-full text-sm" placeholder="Title *"
+          <input className="border rounded px-3 py-2 w-full text-sm" placeholder="Title (AI can generate)"
             value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           <select className="border rounded px-3 py-2 w-full text-sm bg-white"
-            value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })}>
-            <option value="">No category</option>
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>{category.name}</option>
+            value={form.category_id} onChange={(e) => {
+              setForm({ ...form, category_id: e.target.value });
+              setCategorySuggestion(null);
+              setTitleSuggestionInput("");
+              setCategorySuggestionInput("");
+              setTagSuggestionInput("");
+              setSuggestionDialogOpen(false);
+            }}>
+            <option value="">Select category...</option>
+            {categoryOptions.map((category) => (
+              <option key={category.id} value={category.id}>{getCategoryPath(category.id)}</option>
             ))}
           </select>
           <input className="border rounded px-3 py-2 w-full text-sm" placeholder="Tags (comma-separated)"
@@ -179,12 +468,100 @@ export default function Home() {
           <textarea className="border rounded px-3 py-2 w-full text-sm h-32" placeholder="Content *"
             value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} />
           {error && <p className="text-red-600 text-sm">{error}</p>}
-          <button onClick={handleSave} disabled={saving}
-            className="px-6 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50">
-            {saving ? "Saving..." : "Save"}
-          </button>
+          {saving && (
+            <div className="flex items-center gap-2 text-sm text-gray-600" role="status" aria-live="polite">
+              <span
+                className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"
+                aria-hidden="true"
+              />
+              <span>Saving and evaluating note…</span>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button onClick={handleSave} disabled={saving || suggesting}
+              className="px-6 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50">
+              {saving ? "Saving and evaluating…" : suggesting ? "Choosing category..." : "Save"}
+            </button>
+          </div>
         </div>
       </section>
+
+      {suggestionDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+          <div className="w-full max-w-lg rounded bg-white p-5 shadow-lg">
+            <h2 className="text-lg font-semibold">Required metadata is missing.</h2>
+            <p className="mt-2 text-sm text-gray-600">
+              I suggested a title, category, and three tags. Please confirm or edit them before saving.
+            </p>
+            <label className="mt-4 block text-sm font-medium text-gray-700">
+              Title
+              <input
+                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                value={titleSuggestionInput}
+                onChange={(event) => setTitleSuggestionInput(event.target.value)}
+                placeholder="One-line title"
+              />
+            </label>
+            <label className="mt-4 block text-sm font-medium text-gray-700">
+              Category
+              <input
+                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                value={categorySuggestionInput}
+                onChange={(event) => setCategorySuggestionInput(event.target.value)}
+                placeholder="Tech > Supabase > Security"
+              />
+            </label>
+            <label className="mt-4 block text-sm font-medium text-gray-700">
+              Tags
+              <input
+                className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                value={tagSuggestionInput}
+                onChange={(event) => setTagSuggestionInput(event.target.value)}
+                placeholder="keyword 1, keyword 2, keyword 3"
+              />
+            </label>
+            {categorySuggestion?.reason && (
+              <p className="mt-2 text-xs text-gray-500">{categorySuggestion.reason}</p>
+            )}
+            <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
+              {saving && (
+                <div className="mr-auto flex items-center gap-2 text-sm text-gray-600" role="status" aria-live="polite">
+                  <span
+                    className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600"
+                    aria-hidden="true"
+                  />
+                  <span>Saving and evaluating note…</span>
+                </div>
+              )}
+              <button
+                className="rounded border px-4 py-2 text-sm hover:bg-gray-50"
+                onClick={() => {
+                  setSuggestionDialogOpen(false);
+                  setCategorySuggestion(null);
+                  setTitleSuggestionInput("");
+                  setCategorySuggestionInput("");
+                  setTagSuggestionInput("");
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+                disabled={
+                  suggesting
+                  || saving
+                  || titleSuggestionInput.trim().length === 0
+                  || categorySuggestionInput.trim().length === 0
+                  || parseConfirmedTags(tagSuggestionInput).length !== 3
+                }
+                onClick={useSuggestedMetadata}
+              >
+                {suggesting || saving ? "Saving and evaluating…" : "OK"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Notes List */}
       <section>
@@ -195,15 +572,27 @@ export default function Home() {
             <div key={note.id}
               className="border rounded p-4 cursor-pointer hover:bg-gray-50"
               onClick={() => setSelected(note)}>
-              <div className="flex flex-col gap-1 sm:flex-row sm:justify-between sm:items-start">
-                <h3 className="font-semibold">{note.title}</h3>
-                <span className="text-xs text-gray-400 sm:ml-4 shrink-0">
-                  Created Date: {formatDate(note.created_at)}
-                </span>
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="min-w-0 flex-1 font-semibold">{note.title}</h3>
+                {hasRatings(note) && (
+                  <div
+                    className="shrink-0 pt-0.5 text-[11px] leading-none text-gray-500"
+                    title={`Usefulness ${note.rating_usefulness} / Importance ${note.rating_importance} / Credibility ${note.rating_credibility}`}
+                  >
+                    {stars(note.rating_usefulness!)}
+                    <span className="mx-1 text-gray-400">·</span>
+                    {stars(note.rating_importance!)}
+                    <span className="mx-1 text-gray-400">·</span>
+                    {stars(note.rating_credibility!)}
+                  </div>
+                )}
+              </div>
+              <div className="mt-1 text-xs text-gray-400">
+                Created Date: {formatDate(note.created_at)}
               </div>
               <div className="flex gap-2 mt-1 flex-wrap">
-                {note.categories && (
-                  <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{note.categories.name}</span>
+                {getCategoryPath(note.category_id) && (
+                  <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-800">{getCategoryPath(note.category_id)}</span>
                 )}
                 {note.tags.map((t) => (
                   <span key={t} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">#{t}</span>
