@@ -20,6 +20,10 @@ export type TechnicalNote = {
   tags: string[];
   content: string;
   source_url: string | null;
+  rating_eval_id: string | null;
+  rating_usefulness: number | null;
+  rating_importance: number | null;
+  rating_credibility: number | null;
   created_at: string;
   updated_at: string;
 };

@@ -1,5 +1,8 @@
 import { authErrorResponse, requireUser } from "@/lib/auth";
+import { fetchNoteRatings } from "@/lib/note-rating";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
+
+export const maxDuration = 60;
 
 const NOTE_SELECT = "*, categories(id, name)";
 
@@ -81,7 +84,31 @@ export async function POST(request: Request) {
       .single();
 
     if (error) throw new Error(error.message);
-    return Response.json({ note: data });
+
+    const ratings = await fetchNoteRatings(content);
+    if (!ratings) {
+      return Response.json({ note: data });
+    }
+
+    const { data: ratedNote, error: ratingError } = await supabase
+      .from("technical_notes")
+      .update({
+        rating_eval_id: ratings.evalId,
+        rating_usefulness: ratings.usefulness,
+        rating_importance: ratings.importance,
+        rating_credibility: ratings.credibility,
+      })
+      .eq("id", data.id)
+      .eq("owner_user_id", user.id)
+      .select(NOTE_SELECT)
+      .single();
+
+    if (ratingError) {
+      console.error("Failed to persist note ratings:", ratingError.message);
+      return Response.json({ note: data });
+    }
+
+    return Response.json({ note: ratedNote });
   } catch (reason) {
     return authErrorResponse(reason);
   }
