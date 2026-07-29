@@ -61,7 +61,15 @@ describe("admin user action routes", () => {
   it("POST /api/admin/users/[id]/approve approves pending user", async () => {
     const usersBuilder = createQueryBuilder(async (method) => {
       if (method === "single") {
-        return { data: { email: "user@example.com", auth_user_id: null }, error: null };
+        return {
+          data: {
+            email: "user@example.com",
+            auth_user_id: null,
+            user_id: null,
+            status: "pending",
+          },
+          error: null,
+        };
       }
       return { data: null, error: null };
     });
