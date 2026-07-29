@@ -29,10 +29,13 @@ export function createQueryBuilder(
   builder.maybeSingle = vi.fn(async (...args: unknown[]) => resolve("maybeSingle", ...args));
   builder.single = vi.fn(async (...args: unknown[]) => resolve("single", ...args));
 
-  builder.then = (
-    onFulfilled?: (value: SupabaseResult) => unknown,
-    onRejected?: (reason: unknown) => unknown
-  ) => resolve("then").then(onFulfilled, onRejected);
+  // Thenable support for `await supabase.from(...).select(...)`
+  Object.assign(builder, {
+    then: (
+      onFulfilled?: (value: SupabaseResult) => unknown,
+      onRejected?: (reason: unknown) => unknown,
+    ) => resolve("then").then(onFulfilled, onRejected),
+  });
 
   return builder;
 }

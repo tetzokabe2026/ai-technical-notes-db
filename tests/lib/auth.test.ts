@@ -105,6 +105,13 @@ describe("getCurrentUser", () => {
 
   it("returns null when no access token cookie exists", async () => {
     cookieStore.get.mockReturnValue(undefined);
+    vi.doMock("@/lib/supabase-server", () => ({
+      getSupabaseAdmin: vi.fn(() => ({
+        auth: {
+          getUser: vi.fn(),
+        },
+      })),
+    }));
     const { getCurrentUser } = await import("@/lib/auth");
     await expect(getCurrentUser()).resolves.toBeNull();
   });
