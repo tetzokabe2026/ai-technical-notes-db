@@ -1,6 +1,3 @@
-const DEFAULT_RATING_API_URL =
-  "https://evaluation-mock-api-47730621722.asia-northeast1.run.app";
-
 const MIN_BODY_LENGTH = 20;
 const MAX_BODY_LENGTH = 255;
 const MAX_RETRIES = 3;
@@ -17,8 +14,10 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getRatingApiBaseUrl() {
-  return (process.env.NOTE_RATING_API_URL ?? DEFAULT_RATING_API_URL).replace(/\/$/, "");
+function getRatingApiBaseUrl(): string | null {
+  const url = process.env.NOTE_RATING_API_URL?.trim();
+  if (!url) return null;
+  return url.replace(/\/$/, "");
 }
 
 function normalizeBody(content: string): string | null {
@@ -47,8 +46,8 @@ function parseRatings(payload: unknown): NoteRatings | null {
   };
 }
 
-async function requestRatingsOnce(body: string): Promise<NoteRatings> {
-  const response = await fetch(`${getRatingApiBaseUrl()}/evaluations`, {
+async function requestRatingsOnce(body: string, baseUrl: string): Promise<NoteRatings> {
+  const response = await fetch(`${baseUrl}/evaluations`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ body }),
@@ -70,10 +69,16 @@ export async function fetchNoteRatings(content: string): Promise<NoteRatings | n
   const body = normalizeBody(content);
   if (!body) return null;
 
+  const baseUrl = getRatingApiBaseUrl();
+  if (!baseUrl) {
+    console.warn("NOTE_RATING_API_URL is not set; skipping note ratings");
+    return null;
+  }
+
   const maxAttempts = MAX_RETRIES + 1;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await requestRatingsOnce(body);
+      return await requestRatingsOnce(body, baseUrl);
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason);
       console.error(`fetchNoteRatings attempt ${attempt}/${maxAttempts} failed:`, message);
