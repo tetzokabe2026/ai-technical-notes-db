@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-<<<<<<< HEAD
     branches: [main]
   pull_request:
 
@@ -13,16 +12,6 @@ concurrency:
 jobs:
   lint-and-build:
     runs-on: ubuntu-latest
-=======
-    branches:
-      - "**"
-  pull_request:
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-
->>>>>>> 843f807 (Add GitHub Actions CI workflow for unit tests)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,17 +19,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-<<<<<<< HEAD
           node-version: 22
-=======
-          node-version: "20"
->>>>>>> 843f807 (Add GitHub Actions CI workflow for unit tests)
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-<<<<<<< HEAD
       - name: Lint
         run: npm run lint
 
@@ -49,7 +33,21 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
-=======
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Run unit tests
         run: npm test
->>>>>>> 843f807 (Add GitHub Actions CI workflow for unit tests)
