@@ -7,9 +7,9 @@
 ```text
 GitHub (push to main)
   -> GitHub Actions (CI: lint/build, CD: deploy)
-  -> Artifact Registry (Docker image)
-  -> Cloud Run
-  -> Supabase / OpenAI / Resend
+    -> Artifact Registry (Docker image)
+    -> Cloud Run
+    -> Supabase / OpenAI / Resend
 ```
 
 | ワークフロー | トリガー | 内容 |
@@ -19,18 +19,18 @@ GitHub (push to main)
 
 ## 前提条件
 
-- GCP プロジェクト: `jupiter-sweeper-2026`
-- リージョン: `asia-northeast1`
+- GCP プロジェクト ID（ご自身のプロジェクト）
+- リージョン: `asia-northeast1`（変更可）
 - Artifact Registry リポジトリ: `ai-notes`
 - Cloud Run サービス名: `ai-technical-notes-db`
-- GitHub リポジトリ: `tetzokabe2026/ai-technical-notes-db`
+- GitHub リポジトリ（このリポジトリ）
 
 ## 1. GCP 側の準備
 
 ### 1.1 デプロイ用サービスアカウント
 
 ```bash
-export PROJECT_ID=jupiter-sweeper-2026
+export PROJECT_ID=your-gcp-project-id
 export REGION=asia-northeast1
 export SA_NAME=github-actions-deployer
 export SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -84,8 +84,8 @@ echo -n 'your-openai-api-key' | gcloud secrets create openai-api-key \
 長期間有効なサービスアカウントキーを使わず、GitHub から GCP へ安全に認証する方法です。
 
 ```bash
-export PROJECT_ID=jupiter-sweeper-2026
-export GITHUB_ORG=tetzokabe2026
+export PROJECT_ID=your-gcp-project-id
+export GITHUB_ORG=your-github-org-or-user
 export GITHUB_REPO=ai-technical-notes-db
 export SA_EMAIL="github-actions-deployer@${PROJECT_ID}.iam.gserviceaccount.com"
 export POOL_ID=github-pool
@@ -125,12 +125,18 @@ gcloud iam workload-identity-pools providers describe "${PROVIDER_ID}" \
 
 GitHub リポジトリの **Settings → Secrets and variables → Actions** で以下を登録します。
 
+### Variables（必須）
+
+| 名前 | 説明 |
+|---|---|
+| `GCP_PROJECT_ID` | GCP プロジェクト ID |
+
 ### Secrets（必須）
 
 | 名前 | 説明 |
 |---|---|
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | WIF プロバイダの完全なリソース名 |
-| `GCP_SERVICE_ACCOUNT` | `github-actions-deployer@jupiter-sweeper-2026.iam.gserviceaccount.com` |
+| `GCP_SERVICE_ACCOUNT` | `github-actions-deployer@your-gcp-project-id.iam.gserviceaccount.com` |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase プロジェクト URL（Docker ビルド時に埋め込み） |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key（Docker ビルド時に埋め込み） |
 | `NEXT_PUBLIC_APP_URL` | 本番アプリ URL（例: `https://ai-technical-notes-db-xxxxx.a.run.app`） |
@@ -158,7 +164,7 @@ WIF の設定が難しい場合のみ、JSON キーを `GCP_SA_KEY` として登
 ## 4. ローカル開発との関係
 
 - ローカル開発: `npm run dev`（従来どおり）
-- 手動デプロイ: `gcloud builds submit --config=cloudbuild.yaml` も引き続き利用可能
+- 手動デプロイ: `gcloud builds submit --config=cloudbuild.yaml` も引き続き利用可能（`_PROJECT_ID` 等の substitution を渡す）
 - 本番デプロイの正規ルート: **`main` への merge**
 
 Cursor から直接 GCP へデプロイする必要はありません。コードを GitHub に push すれば CI/CD が自動実行されます。
@@ -170,4 +176,5 @@ Cursor から直接 GCP へデプロイする必要はありません。コー�
 | 認証エラー | WIF の `attribute.repository` が GitHub リポジトリと一致しているか |
 | Docker push 失敗 | Artifact Registry リポジトリ `ai-notes` が存在するか、SA に `artifactregistry.writer` があるか |
 | Cloud Run 起動後 500 エラー | Secret Manager のシークレット名・権限、環境変数 `NEXT_PUBLIC_APP_URL` |
-| ビルド失敗 | GitHub Secrets の `NEXT_PUBLIC_SUPABASE_*` が設定されているか |
+| ビルド失敗 | GitHub Secrets の `NEXT_PUBLIC_SUPABASE_*` / Variables の `GCP_PROJECT_ID` が設定されているか |
+| 評価 API が呼ばれない | `NOTE_RATING_API_URL` が Cloud Run / ローカル環境に設定されているか |

@@ -1,42 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI Technical Notes DB
 
-## ⚠️ 重要：認証機能追加後のデータ復元について
+Next.js + Supabase で動く技術メモ管理アプリです。階層カテゴリ、認証、画像付きメモ、任意の評価 API 連携に対応しています。
 
-認証機能（v1.3）を追加した後、以前のデータが見えなくなった場合は、**[DATA_RECOVERY.md](./DATA_RECOVERY.md)** を参照してください。
+## Features
 
-データは削除されておらず、復元可能です。詳しい手順と原因については、上記のドキュメントをご確認ください。
+- 技術メモの作成・編集・検索
+- 階層カテゴリと AI による分類支援（OpenAI、任意）
+- メール / パスワード認証と管理者承認フロー
+- Supabase Storage への画像アップロード
+- メモ作成時の評価 API 連携（`NOTE_RATING_API_URL`、任意）
+
+## Stack
+
+- Next.js (App Router) / TypeScript / Tailwind CSS
+- Supabase (Auth, Postgres, Storage)
+- Google Cloud Run（本番デプロイ例）
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+cp .env.example .env.local
+# .env.local に Supabase などの値を設定
+
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+[http://localhost:3000](http://localhost:3000) を開きます。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+管理者ユーザーの作成:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run create-admin
+```
 
-## Learn More
+## Configuration
 
-To learn more about Next.js, take a look at the following resources:
+主な環境変数は [`.env.example`](./.env.example) を参照してください。
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| 変数 | 説明 |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase 公開設定 |
+| `SUPABASE_SERVICE_ROLE_KEY` | サーバー専用（公開しない） |
+| `NOTE_RATING_API_URL` | 評価 API のベース URL（未設定なら評価はスキップ） |
+| `OPENAI_API_KEY` | AI 分類用（任意） |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Deploy
 
-## Deploy on Vercel
+- 手動 / Cloud Build: [DEPLOYMENT.md](./DEPLOYMENT.md)
+- GitHub Actions → Cloud Run: [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+デプロイ前に GitHub Actions Variables へ `GCP_PROJECT_ID` を設定してください。実プロジェクト ID はリポジトリに含めない想定です。
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Docs
+
+- [SPEC.md](./SPEC.md) — 仕様概要
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — アーキテクチャ
+- [docs/AUTH_REVIEW.md](./docs/AUTH_REVIEW.md) — 認証レビューメモ
+- [DATA_RECOVERY.md](./DATA_RECOVERY.md) — 認証追加後のデータ復元
+
+## License
+
+[MIT](./LICENSE)

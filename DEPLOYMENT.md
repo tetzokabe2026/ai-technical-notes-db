@@ -118,20 +118,20 @@ node scripts/check-orphaned-data.mjs
 
 ```bash
 # Google Cloudプロジェクトを設定
-gcloud config set project jupiter-sweeper-2026
+gcloud config set project your-gcp-project-id
 
 # Artifact Registryの認証
 gcloud auth configure-docker asia-northeast1-docker.pkg.dev
 
-# ビルドを実行
+# ビルドを実行（プロジェクト ID は substitution で渡す）
 gcloud builds submit \
   --config=cloudbuild.yaml \
-  --substitutions=_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL",_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY"
+  --substitutions=_PROJECT_ID=your-gcp-project-id,_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL",_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY"
 ```
 
 ビルドが完了すると、Dockerイメージが以下のレジストリに保存されます：
 ```
-asia-northeast1-docker.pkg.dev/jupiter-sweeper-2026/ai-notes/ai-technical-notes-db:latest
+asia-northeast1-docker.pkg.dev/your-gcp-project-id/ai-notes/ai-technical-notes-db:latest
 ```
 
 ### ステップ5: Cloud Runにデプロイ（オプション）
@@ -139,7 +139,7 @@ asia-northeast1-docker.pkg.dev/jupiter-sweeper-2026/ai-notes/ai-technical-notes-
 ```bash
 # Cloud Runサービスをデプロイ
 gcloud run deploy ai-technical-notes-db \
-  --image asia-northeast1-docker.pkg.dev/jupiter-sweeper-2026/ai-notes/ai-technical-notes-db:latest \
+  --image asia-northeast1-docker.pkg.dev/your-gcp-project-id/ai-notes/ai-technical-notes-db:latest \
   --platform managed \
   --region asia-northeast1 \
   --allow-unauthenticated \
@@ -241,7 +241,6 @@ name: Deploy to Cloud Run
 on:
   push:
     branches:
-      - codex/v1.2-hierarchical-categories
       - main
 
 jobs:
@@ -253,19 +252,19 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v1
         with:
-          project_id: jupiter-sweeper-2026
+          project_id: ${{ vars.GCP_PROJECT_ID }}
           service_account_key: ${{ secrets.GCP_SA_KEY }}
       
       - name: Build and push
         run: |
           gcloud builds submit \
             --config=cloudbuild.yaml \
-            --substitutions=_SUPABASE_URL="${{ secrets.SUPABASE_URL }}",_SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+            --substitutions=_PROJECT_ID="${{ vars.GCP_PROJECT_ID }}",_SUPABASE_URL="${{ secrets.SUPABASE_URL }}",_SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
       
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy ai-technical-notes-db \
-            --image asia-northeast1-docker.pkg.dev/jupiter-sweeper-2026/ai-notes/ai-technical-notes-db:latest \
+            --image asia-northeast1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/ai-notes/ai-technical-notes-db:latest \
             --region asia-northeast1 \
             --platform managed
 ```
