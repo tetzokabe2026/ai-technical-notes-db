@@ -1,13 +1,13 @@
-name: Deploy to Cloud Run
+# 本番デプロイの正規ルートは Jenkins（PR merge → main push）。
+# このワークフローは緊急時の手動デプロイ専用。push では起動しない。
+name: Deploy to Cloud Run (manual)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-${{ github.ref }}
-  cancel-in-progress: true
+  group: deploy-manual
+  cancel-in-progress: false
 
 env:
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}

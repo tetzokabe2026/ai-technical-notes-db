@@ -229,56 +229,28 @@ node scripts/check-orphaned-data.mjs
 
 ## 継続的デプロイメント（CI/CD）
 
-将来的に、GitHub Actionsを使用した自動デプロイを設定することを推奨します。
+本番の正規ルートは **PR Merge → Jenkins → Cloud Run** です（ワンプッシュ / GitHub Actions 自動デプロイは使いません）。
 
-### GitHub Actionsワークフローの例
+詳細は [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) とルートの [`Jenkinsfile`](./Jenkinsfile) を参照してください。
 
-`.github/workflows/deploy.yml`:
-
-```yaml
-name: Deploy to Cloud Run
-
-on:
-  push:
-    branches:
-      - main
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v1
-        with:
-          project_id: ${{ vars.GCP_PROJECT_ID }}
-          service_account_key: ${{ secrets.GCP_SA_KEY }}
-      
-      - name: Build and push
-        run: |
-          gcloud builds submit \
-            --config=cloudbuild.yaml \
-            --substitutions=_PROJECT_ID="${{ vars.GCP_PROJECT_ID }}",_SUPABASE_URL="${{ secrets.SUPABASE_URL }}",_SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
-      
-      - name: Deploy to Cloud Run
-        run: |
-          gcloud run deploy ai-technical-notes-db \
-            --image asia-northeast1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/ai-notes/ai-technical-notes-db:latest \
-            --region asia-northeast1 \
-            --platform managed
+```text
+PR を main へ Merge
+  -> GitHub push webhook
+    -> Jenkins (Jenkinsfile)
+      -> lint / test / docker build & push
+      -> gcloud run deploy
 ```
+
+GitHub Actions の `.github/workflows/deploy.yml` は **手動 (`workflow_dispatch`) のみ**残しています。
 
 ## まとめ
 
 デプロイの全体フロー：
 
-1. ✅ PRをマージ
-2. ⏳ Supabaseマイグレーションを適用
-3. ⏳ 管理者ユーザーを作成
-4. ⏳ データ復元を確認
-5. ⏳ Google Cloud Buildでビルド
-6. ⏳ Cloud Runにデプロイ（オプション）
-7. ⏳ 動作確認
+1. ✅ PRをマージ（本番デプロイのトリガー）
+2. ⏳ Jenkins がビルド〜 Cloud Run デプロイ
+3. ⏳ 初回のみ Supabaseマイグレーション / 管理者ユーザー作成
+4. ⏳ データ復元を確認（必要な場合）
+5. ⏳ 動作確認
 
 ご不明な点があれば、[DATA_RECOVERY.md](./DATA_RECOVERY.md)も参照してください。
