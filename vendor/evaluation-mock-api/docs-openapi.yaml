@@ -1,0 +1,195 @@
+openapi: 3.0.3
+info:
+  title: Evaluation Mock API
+  version: 1.0.1
+  description: >
+    Mock Experience API that returns random five-level ratings
+    (usefulness, importance, credibility) for technical notes.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://evaluation-mock-api-47730621722.asia-northeast1.run.app
+    description: Google Cloud Run
+
+paths:
+  /evaluations:
+    post:
+      summary: Create a mock evaluation
+      operationId: createEvaluation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvaluationRequest'
+            example:
+              body: Cursor agents execute commands in an isolated environment.
+      responses:
+        '201':
+          description: Evaluation created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Evaluation'
+              example:
+                eval-id: eval-12345
+                usefulness: 4
+                importance: 2
+                credibility: 5
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+              example:
+                error:
+                  code: VALIDATION_ERROR
+                  message: The request body is invalid.
+                  details:
+                    - field: body
+                      message: body must contain between 20 and 255 characters.
+
+  /evaluations/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Evaluation identifier
+        example: eval-12345
+    get:
+      summary: Get a mock evaluation by ID
+      operationId: getEvaluation
+      responses:
+        '200':
+          description: Evaluation found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Evaluation'
+              example:
+                eval-id: eval-12345
+                usefulness: 3
+                importance: 5
+                credibility: 4
+        '404':
+          description: Evaluation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+    delete:
+      summary: Delete a mock evaluation by ID
+      operationId: deleteEvaluation
+      responses:
+        '204':
+          description: Evaluation deleted
+        '404':
+          description: Evaluation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+
+components:
+  schemas:
+    EvaluationRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - body
+      properties:
+        body:
+          type: string
+          minLength: 20
+          maxLength: 255
+          description: Technical note text to be evaluated.
+          example: Cursor agents execute commands in an isolated environment.
+
+    Evaluation:
+      type: object
+      additionalProperties: false
+      required:
+        - eval-id
+        - usefulness
+        - importance
+        - credibility
+      properties:
+        eval-id:
+          type: string
+          description: Identifier of the evaluation.
+          example: eval-12345
+        usefulness:
+          type: integer
+          minimum: 1
+          maximum: 5
+          example: 4
+        importance:
+          type: integer
+          minimum: 1
+          maximum: 5
+          example: 2
+        credibility:
+          type: integer
+          minimum: 1
+          maximum: 5
+          example: 5
+
+    ValidationError:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+            - details
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              example: The request body is invalid.
+            details:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                  - field
+                  - message
+                properties:
+                  field:
+                    type: string
+                    example: body
+                  message:
+                    type: string
+                    example: body must contain between 20 and 255 characters.
+
+    NotFoundError:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              example: NOT_FOUND
+            message:
+              type: string
+              example: Evaluation not found.
