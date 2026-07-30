@@ -60,17 +60,14 @@ pipeline {
     }
 
     stage('Lint & Test') {
-      agent {
-        docker {
-          image 'node:22-alpine'
-          reuseNode true
-        }
-      }
       steps {
-        sh 'npm ci'
-        sh 'npm run lint'
-        sh 'npm test'
         sh '''
+          set -euo pipefail
+          node -v
+          npm -v
+          npm ci
+          npm run lint
+          npm test
           NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
           NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key \
           npm run build
