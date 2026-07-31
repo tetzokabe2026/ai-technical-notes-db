@@ -387,8 +387,8 @@ export default function Home() {
           <section className="mb-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               <span className="font-semibold text-gray-700">Ratings</span>
-              <span>Usefulness {stars(selected.rating_usefulness!)}</span>
-              <span>Importance {stars(selected.rating_importance!)}</span>
+              <span>Usefulness+ {stars(selected.rating_usefulness!)}</span>
+              <span>Importance+ {stars(selected.rating_importance!)}</span>
               <span>Credibility+ {stars(selected.rating_credibility!)}</span>
             </div>
           </section>
