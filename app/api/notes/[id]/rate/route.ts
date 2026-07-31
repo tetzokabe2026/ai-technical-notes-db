@@ -6,7 +6,10 @@ export const maxDuration = 60;
 
 const NOTE_SELECT = "*, categories(id, name)";
 
-export async function POST(_request: Request, context: RouteContext<"/api/notes/[id]/rate">) {
+export async function POST(
+  _request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
   try {
     const user = await requireUser();
     const { id } = await context.params;
@@ -38,11 +41,17 @@ export async function POST(_request: Request, context: RouteContext<"/api/notes/
 
     const { ratings, skipReason } = await fetchNoteRatings(note.content ?? "");
     if (!ratings) {
+      const { data: current } = await supabase
+        .from("technical_notes")
+        .select(NOTE_SELECT)
+        .eq("id", id)
+        .eq("owner_user_id", user.id)
+        .single();
       return Response.json({
-        note: null,
+        note: current,
         ratingsApplied: false,
         ratingSkipReason: skipReason ?? "api_failed",
-      }, { status: 422 });
+      });
     }
 
     const { data: ratedNote, error: ratingError } = await supabase
