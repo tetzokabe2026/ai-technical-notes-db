@@ -2,6 +2,7 @@
 //
 // GitHub → Jenkins 想定トリガー:
 //   - GitHub webhook: push to `main`（PR マージで発火）
+//     Payload URL 例: http://<jenkins-external-ip>:8080/github-webhook/
 //   - または Multibranch Pipeline で main のみ Deploy ステージ実行
 //
 // 必要な Jenkins Credentials（ID）:
