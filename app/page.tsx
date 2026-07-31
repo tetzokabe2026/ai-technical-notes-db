@@ -242,7 +242,7 @@ export default function Home() {
     setTagSuggestionInput("");
     setSuggestionDialogOpen(false);
     await fetchNotes(query);
-    if (savedNote) setSelected(savedNote);
+    if (savedNote) setSelected(await ensureNoteRatings(savedNote));
     return true;
   }
 
@@ -353,6 +353,29 @@ export default function Home() {
       && typeof note.rating_importance === "number"
       && typeof note.rating_credibility === "number"
     );
+  }
+
+  async function ensureNoteRatings(note: TechnicalNote) {
+    if (hasRatings(note)) return note;
+    try {
+      const body = await requestJson<{ note: TechnicalNote | null; ratingsApplied?: boolean }>(
+        `/api/notes/${note.id}/rate`,
+        { method: "POST" },
+      );
+      if (body.note && hasRatings(body.note)) {
+        setNotes((prev) => prev.map((n) => (n.id === body.note!.id ? body.note! : n)));
+        return body.note;
+      }
+    } catch (reason) {
+      console.warn("Failed to backfill note ratings:", reason);
+    }
+    return note;
+  }
+
+  async function openNote(note: TechnicalNote) {
+    setSelected(note);
+    const rated = await ensureNoteRatings(note);
+    setSelected(rated);
   }
 
   const categoryOptions = [...categories].sort((a, b) =>
@@ -571,7 +594,7 @@ export default function Home() {
           {notes.map((note) => (
             <div key={note.id}
               className="border rounded p-4 cursor-pointer hover:bg-gray-50"
-              onClick={() => setSelected(note)}>
+              onClick={() => { void openNote(note); }}>
               <div className="flex items-start justify-between gap-3">
                 <h3 className="min-w-0 flex-1 font-semibold">{note.title}</h3>
                 {hasRatings(note) && (
