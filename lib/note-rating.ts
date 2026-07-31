@@ -1,10 +1,10 @@
 const MIN_BODY_LENGTH = 20;
 const MAX_BODY_LENGTH = 255;
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 5_000;
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 2_000;
 
-/** Public Evaluation Mock API used when NOTE_RATING_API_URL is unset/placeholder. */
-const DEFAULT_RATING_API_URL =
+/** Public Evaluation Mock API used when NOTE_RATING_API_URL is unset/placeholder/unreachable. */
+export const DEFAULT_RATING_API_URL =
   "https://evaluation-mock-api-47730621722.asia-northeast1.run.app";
 
 export type NoteRatings = {
@@ -26,21 +26,25 @@ function sleep(ms: number) {
 
 function normalizeBaseUrl(url: string): string {
   let normalized = url.trim().replace(/\/$/, "");
-  // Credential sometimes includes the path; we always append /evaluations.
   if (normalized.endsWith("/evaluations")) {
     normalized = normalized.slice(0, -"/evaluations".length).replace(/\/$/, "");
   }
   return normalized;
 }
 
+function isPlaceholderUrl(url: string): boolean {
+  return (
+    !url
+    || /example\.com/i.test(url)
+    || /your-evaluation/i.test(url)
+    || url === "REPLACE_ME"
+    || /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(url)
+  );
+}
+
 export function getRatingApiBaseUrl(): string {
   const configured = process.env.NOTE_RATING_API_URL?.trim();
-  if (
-    !configured
-    || /example\.com/i.test(configured)
-    || /your-evaluation/i.test(configured)
-    || configured === "REPLACE_ME"
-  ) {
+  if (!configured || isPlaceholderUrl(configured)) {
     return DEFAULT_RATING_API_URL;
   }
   return normalizeBaseUrl(configured);
@@ -103,19 +107,10 @@ async function requestRatingsOnce(body: string, baseUrl: string): Promise<NoteRa
   return ratings;
 }
 
-export async function fetchNoteRatings(
-  content: string,
-): Promise<{ ratings: NoteRatings | null; skipReason?: RatingSkipReason }> {
-  if (!content.trim()) {
-    return { ratings: null, skipReason: "content_empty" };
-  }
-
-  const body = normalizeBody(content);
-  if (!body) {
-    return { ratings: null, skipReason: "content_too_short" };
-  }
-
-  const baseUrl = getRatingApiBaseUrl();
+async function fetchWithRetries(
+  body: string,
+  baseUrl: string,
+): Promise<{ ratings: NoteRatings | null; skipReason?: RatingSkipReason; lastError?: string }> {
   const maxAttempts = MAX_RETRIES + 1;
   let lastError = "unknown";
 
@@ -129,15 +124,60 @@ export async function fetchNoteRatings(
         `fetchNoteRatings attempt ${attempt}/${maxAttempts} failed (${baseUrl}):`,
         lastError,
       );
-      if (attempt >= maxAttempts) {
-        return {
-          ratings: null,
-          skipReason: lastError.includes("invalid payload") ? "invalid_payload" : "api_failed",
-        };
-      }
-      await sleep(RETRY_DELAY_MS);
+      if (attempt < maxAttempts) await sleep(RETRY_DELAY_MS);
     }
   }
 
-  return { ratings: null, skipReason: "api_failed" };
+  return {
+    ratings: null,
+    skipReason: lastError.includes("invalid payload") ? "invalid_payload" : "api_failed",
+    lastError,
+  };
+}
+
+export async function fetchNoteRatings(
+  content: string,
+): Promise<{
+  ratings: NoteRatings | null;
+  skipReason?: RatingSkipReason;
+  ratingApiBaseUrl?: string;
+  lastError?: string;
+}> {
+  if (!content.trim()) {
+    return { ratings: null, skipReason: "content_empty" };
+  }
+
+  const body = normalizeBody(content);
+  if (!body) {
+    return { ratings: null, skipReason: "content_too_short" };
+  }
+
+  const primary = getRatingApiBaseUrl();
+  const primaryResult = await fetchWithRetries(body, primary);
+  if (primaryResult.ratings) {
+    return { ratings: primaryResult.ratings, ratingApiBaseUrl: primary };
+  }
+
+  if (primary !== DEFAULT_RATING_API_URL) {
+    console.warn(
+      `Primary rating API failed (${primary}: ${primaryResult.lastError}); falling back to default`,
+    );
+    const fallback = await fetchWithRetries(body, DEFAULT_RATING_API_URL);
+    if (fallback.ratings) {
+      return { ratings: fallback.ratings, ratingApiBaseUrl: DEFAULT_RATING_API_URL };
+    }
+    return {
+      ratings: null,
+      skipReason: fallback.skipReason ?? "api_failed",
+      ratingApiBaseUrl: DEFAULT_RATING_API_URL,
+      lastError: fallback.lastError,
+    };
+  }
+
+  return {
+    ratings: null,
+    skipReason: primaryResult.skipReason ?? "api_failed",
+    ratingApiBaseUrl: primary,
+    lastError: primaryResult.lastError,
+  };
 }

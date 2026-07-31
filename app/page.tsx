@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Category, TechnicalNote } from "@/lib/supabase";
+import { APP_VERSION } from "@/lib/version";
 
 const EMPTY_FORM = { title: "", category_id: "", tags: "", source_url: "", content: "" };
 
@@ -29,6 +30,7 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [error, setError] = useState("");
+  const [ratingMessage, setRatingMessage] = useState("");
   const [currentUser, setCurrentUser] = useState<{ user_id: string | null; email: string; role: string } | null>(null);
 
   async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -356,23 +358,35 @@ export default function Home() {
   }
 
   async function ensureNoteRatings(note: TechnicalNote) {
-    if (hasRatings(note)) return note;
+    if (hasRatings(note)) {
+      setRatingMessage("");
+      return note;
+    }
     try {
-      const body = await requestJson<{ note: TechnicalNote | null; ratingsApplied?: boolean }>(
-        `/api/notes/${note.id}/rate`,
-        { method: "POST" },
-      );
+      const body = await requestJson<{
+        note: TechnicalNote | null;
+        ratingsApplied?: boolean;
+        ratingSkipReason?: string | null;
+      }>(`/api/notes/${note.id}/rate`, { method: "POST" });
       if (body.note && hasRatings(body.note)) {
         setNotes((prev) => prev.map((n) => (n.id === body.note!.id ? body.note! : n)));
+        setRatingMessage("");
         return body.note;
       }
+      setRatingMessage(
+        body.ratingSkipReason
+          ? `Ratings unavailable (${body.ratingSkipReason}). Content must be 20–255 chars; check /api/debug/rating.`
+          : "Ratings unavailable.",
+      );
     } catch (reason) {
       console.warn("Failed to backfill note ratings:", reason);
+      setRatingMessage(reason instanceof Error ? reason.message : "Failed to fetch ratings.");
     }
     return note;
   }
 
   async function openNote(note: TechnicalNote) {
+    setRatingMessage("");
     setSelected(note);
     const rated = await ensureNoteRatings(note);
     setSelected(rated);
@@ -406,15 +420,19 @@ export default function Home() {
             {selected.source_url}
           </a>
         )}
-        {hasRatings(selected) && (
+        {hasRatings(selected) ? (
           <section className="mb-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               <span className="font-semibold text-gray-700">Ratings</span>
-              <span>Usefulness+ {stars(selected.rating_usefulness!)}</span>
-              <span>Importance+ {stars(selected.rating_importance!)}</span>
-              <span>Credibility+ {stars(selected.rating_credibility!)}</span>
+              <span>Usefulness {stars(selected.rating_usefulness!)}</span>
+              <span>Importance {stars(selected.rating_importance!)}</span>
+              <span>Credibility {stars(selected.rating_credibility!)}</span>
             </div>
           </section>
+        ) : (
+          ratingMessage && (
+            <p className="mb-4 text-sm text-amber-700">{ratingMessage}</p>
+          )
         )}
         <pre className="mb-6 whitespace-pre-wrap rounded bg-gray-50 p-4 text-sm leading-relaxed text-gray-900">
           {selected.content}
@@ -423,12 +441,14 @@ export default function Home() {
           className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm">
           Delete
         </button>
+        <p className="mt-8 text-right text-xs text-gray-400">v{APP_VERSION}</p>
       </main>
     );
   }
 
   return (
-    <main className="max-w-3xl mx-auto p-6 space-y-8">
+    <main className="relative max-w-3xl mx-auto p-6 space-y-8">
+      <p className="pointer-events-none absolute right-6 top-6 text-xs text-gray-400">v{APP_VERSION}</p>
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-3xl font-bold">AI Technical Notes DB</h1>
         <div className="flex flex-wrap items-center gap-3 text-sm">

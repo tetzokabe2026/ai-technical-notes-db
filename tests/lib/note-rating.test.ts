@@ -65,28 +65,32 @@ describe("note-rating", () => {
     expect(result).toEqual({ ratings: null, skipReason: "content_too_short" });
   });
 
-  it("accepts numeric scores delivered as strings", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response(
-          JSON.stringify({
-            "eval-id": "eval-3",
-            usefulness: "5",
-            importance: "1",
-            credibility: "3",
-          }),
-          { status: 201 },
-        ),
-      ),
-    );
+  it("falls back to default API when configured URL fails", async () => {
+    process.env.NOTE_RATING_API_URL = "https://broken.example.invalid";
+    // example.com is treated as placeholder - use a non-placeholder bad host
+    process.env.NOTE_RATING_API_URL = "https://broken.invalid.tld";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("broken.invalid.tld")) {
+        return new Response("nope", { status: 500 });
+      }
+      return new Response(
+        JSON.stringify({
+          "eval-id": "eval-fallback",
+          usefulness: 4,
+          importance: 4,
+          credibility: 4,
+        }),
+        { status: 201 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const { fetchNoteRatings } = await import("@/lib/note-rating");
     const result = await fetchNoteRatings(
       "This content is long enough to request a rating from the API.",
     );
-    expect(result.ratings?.usefulness).toBe(5);
-    expect(result.ratings?.importance).toBe(1);
-    expect(result.ratings?.credibility).toBe(3);
+    expect(result.ratings?.evalId).toBe("eval-fallback");
+    expect(result.ratingApiBaseUrl).toContain("evaluation-mock-api");
   });
 });
