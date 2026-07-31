@@ -20,7 +20,7 @@ pipeline {
   agent any
 
   options {
-    timestamps()
+    // timestamps() は Timestamper プラグイン依存のため使わない
     disableConcurrentBuilds()
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
