@@ -9,6 +9,7 @@
 //   - next-public-supabase-url   : Secret text
 //   - next-public-supabase-anon  : Secret text
 //   - next-public-app-url        : Secret text（Cloud Run の本番 URL）
+//   - note-rating-api-url        : Secret text（評価 API ベース URL）
 //
 // 必要な Jenkins 環境変数 / ジョブパラメータ（未設定時はデフォルト）:
 //   - GCP_PROJECT_ID（必須）
@@ -107,6 +108,7 @@ pipeline {
         withCredentials([
           file(credentialsId: 'gcp-sa-key', variable: 'GOOGLE_APPLICATION_CREDENTIALS'),
           string(credentialsId: 'next-public-app-url', variable: 'NEXT_PUBLIC_APP_URL'),
+          string(credentialsId: 'note-rating-api-url', variable: 'NOTE_RATING_API_URL'),
         ]) {
           sh '''#!/bin/bash
             set -euo pipefail
@@ -118,7 +120,7 @@ pipeline {
               --region="$GCP_REGION" \
               --platform=managed \
               --allow-unauthenticated \
-              --set-env-vars="NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL},OPENAI_MODEL=gpt-5.5" \
+              --set-env-vars="NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL},OPENAI_MODEL=gpt-5.5,NOTE_RATING_API_URL=${NOTE_RATING_API_URL}" \
               --set-secrets="SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,OPENAI_API_KEY=openai-api-key:latest"
           '''
         }

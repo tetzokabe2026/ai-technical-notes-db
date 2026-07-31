@@ -153,4 +153,4 @@ PR の Merge は GitHub 上では **`main` への push** として届きます�
 | `gcloud auth` 失敗 | Credential `gcp-sa-key` と SA 権限 |
 | Docker push 失敗 | Artifact Registry `ai-notes` の有無、`artifactregistry.writer` |
 | Cloud Run 500 | Secret Manager 名・runtime SA の `secretAccessor`、`NEXT_PUBLIC_APP_URL` |
-| 評価 API が呼ばれない | Cloud Run に `NOTE_RATING_API_URL` が必要なら `--set-env-vars` へ追加 |
+| 評価 API が呼ばれない / 星が出ない | Cloud Run に `NOTE_RATING_API_URL` があるか。Jenkins Credential `note-rating-api-url` と再デプロイ。本文は 20〜255 文字必要 |
