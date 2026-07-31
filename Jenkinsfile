@@ -61,7 +61,7 @@ pipeline {
 
     stage('Lint & Test') {
       steps {
-        sh '''
+        sh '''#!/bin/bash
           set -euo pipefail
           node -v
           npm -v
@@ -82,7 +82,7 @@ pipeline {
           string(credentialsId: 'next-public-supabase-url', variable: 'NEXT_PUBLIC_SUPABASE_URL'),
           string(credentialsId: 'next-public-supabase-anon', variable: 'NEXT_PUBLIC_SUPABASE_ANON_KEY'),
         ]) {
-          sh '''
+          sh '''#!/bin/bash
             set -euo pipefail
             gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
             gcloud config set project "$GCP_PROJECT_ID"
@@ -108,7 +108,7 @@ pipeline {
           file(credentialsId: 'gcp-sa-key', variable: 'GOOGLE_APPLICATION_CREDENTIALS'),
           string(credentialsId: 'next-public-app-url', variable: 'NEXT_PUBLIC_APP_URL'),
         ]) {
-          sh '''
+          sh '''#!/bin/bash
             set -euo pipefail
             gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
             gcloud config set project "$GCP_PROJECT_ID"
