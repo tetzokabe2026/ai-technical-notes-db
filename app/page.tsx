@@ -389,7 +389,7 @@ export default function Home() {
               <span className="font-semibold text-gray-700">Ratings</span>
               <span>Usefulness {stars(selected.rating_usefulness!)}</span>
               <span>Importance {stars(selected.rating_importance!)}</span>
-              <span>Credibility {stars(selected.rating_credibility!)}</span>
+              <span>Credibility+ {stars(selected.rating_credibility!)}</span>
             </div>
           </section>
         )}
