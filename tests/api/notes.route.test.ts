@@ -4,6 +4,7 @@ import { createQueryBuilder } from "../helpers/supabase-mock";
 
 const requireUser = vi.fn();
 const getSupabaseAdmin = vi.fn();
+const fetchNoteRatings = vi.fn();
 
 vi.mock("@/lib/auth", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/auth")>();
@@ -15,6 +16,10 @@ vi.mock("@/lib/auth", async (importOriginal) => {
 
 vi.mock("@/lib/supabase-server", () => ({
   getSupabaseAdmin,
+}));
+
+vi.mock("@/lib/note-rating", () => ({
+  fetchNoteRatings,
 }));
 
 describe("GET /api/notes", () => {
@@ -56,6 +61,7 @@ describe("POST /api/notes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     requireUser.mockResolvedValue(approvedUser);
+    fetchNoteRatings.mockResolvedValue({ ratings: null, skipReason: "content_too_short" });
   });
 
   it("validates required fields", async () => {

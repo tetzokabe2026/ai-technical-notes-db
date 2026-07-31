@@ -85,9 +85,12 @@ export async function POST(request: Request) {
 
     if (error) throw new Error(error.message);
 
-    const ratings = await fetchNoteRatings(content);
+    const { ratings, skipReason } = await fetchNoteRatings(content);
     if (!ratings) {
-      return Response.json({ note: data });
+      if (skipReason) {
+        console.warn(`Note ${data.id}: ratings skipped (${skipReason})`);
+      }
+      return Response.json({ note: data, ratingsApplied: false, ratingSkipReason: skipReason ?? null });
     }
 
     const { data: ratedNote, error: ratingError } = await supabase
@@ -105,10 +108,10 @@ export async function POST(request: Request) {
 
     if (ratingError) {
       console.error("Failed to persist note ratings:", ratingError.message);
-      return Response.json({ note: data });
+      return Response.json({ note: data, ratingsApplied: false, ratingSkipReason: "persist_failed" });
     }
 
-    return Response.json({ note: ratedNote });
+    return Response.json({ note: ratedNote, ratingsApplied: true });
   } catch (reason) {
     return authErrorResponse(reason);
   }
