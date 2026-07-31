@@ -93,6 +93,7 @@ pipeline {
             docker build \
               --build-arg NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
               --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+              --build-arg NEXT_PUBLIC_GIT_SHA="$GIT_SHA" \
               -t "${IMAGE_URI}:${GIT_SHA}" \
               -t "${IMAGE_URI}:latest" \
               .
@@ -121,8 +122,23 @@ pipeline {
               --region="$GCP_REGION" \
               --platform=managed \
               --allow-unauthenticated \
-              --set-env-vars="NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL},OPENAI_MODEL=gpt-5.5,NOTE_RATING_API_URL=${NOTE_RATING_API_URL}" \
+              --set-env-vars="NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL},OPENAI_MODEL=gpt-5.5,NOTE_RATING_API_URL=${NOTE_RATING_API_URL},NEXT_PUBLIC_GIT_SHA=${GIT_SHA}" \
               --set-secrets="SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,OPENAI_API_KEY=openai-api-key:latest"
+
+            # Prove the live revision matches this build (GitHub CI green ≠ Cloud Run updated).
+            APP_URL="${NEXT_PUBLIC_APP_URL%/}"
+            echo "Smoke-checking ${APP_URL}/api/version for gitSha=${GIT_SHA}"
+            for i in 1 2 3 4 5 6; do
+              BODY="$(curl -fsS "${APP_URL}/api/version" || true)"
+              echo "attempt ${i}: ${BODY}"
+              if echo "${BODY}" | grep -q "\"gitSha\":\"${GIT_SHA}\""; then
+                echo "Deploy verified: /api/version matches ${GIT_SHA}"
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "Deploy smoke check failed: live /api/version did not report gitSha=${GIT_SHA}" >&2
+            exit 1
           '''
         }
       }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Category, TechnicalNote } from "@/lib/supabase";
-import { APP_VERSION } from "@/lib/version";
+import { APP_VERSION_LABEL } from "@/lib/version";
 
 const EMPTY_FORM = { title: "", category_id: "", tags: "", source_url: "", content: "" };
 
@@ -441,14 +441,24 @@ export default function Home() {
           className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm">
           Delete
         </button>
-        <p className="mt-8 text-right text-xs text-gray-400">v{APP_VERSION}</p>
+        <p
+          className="fixed bottom-3 left-3 z-50 rounded bg-slate-900 px-3 py-1.5 font-mono text-xs font-semibold text-white shadow-lg"
+          title="Deployed app build"
+        >
+          {APP_VERSION_LABEL || "build unknown"}
+        </p>
       </main>
     );
   }
 
   return (
     <main className="relative max-w-3xl mx-auto p-6 space-y-8">
-      <p className="pointer-events-none absolute right-6 top-6 text-xs text-gray-400">v{APP_VERSION}</p>
+      <p
+        className="fixed bottom-3 left-3 z-50 rounded bg-slate-900 px-3 py-1.5 font-mono text-xs font-semibold text-white shadow-lg"
+        title="Deployed app build"
+      >
+        {APP_VERSION_LABEL || "build unknown"}
+      </p>
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-3xl font-bold">AI Technical Notes DB</h1>
         <div className="flex flex-wrap items-center gap-3 text-sm">

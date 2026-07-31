@@ -1,6 +1,6 @@
 import { authErrorResponse, requireUser } from "@/lib/auth";
 import { DEFAULT_RATING_API_URL, fetchNoteRatings, getRatingApiBaseUrl } from "@/lib/note-rating";
-import { APP_VERSION } from "@/lib/version";
+import { APP_VERSION, APP_VERSION_LABEL, GIT_SHA } from "@/lib/version";
 
 export const maxDuration = 60;
 
@@ -15,6 +15,8 @@ export async function GET() {
 
     return Response.json({
       appVersion: APP_VERSION,
+      gitSha: GIT_SHA || null,
+      label: APP_VERSION_LABEL,
       noteRatingApiUrlConfigured: configured,
       noteRatingApiUrlEffective: effective,
       defaultRatingApiUrl: DEFAULT_RATING_API_URL,
