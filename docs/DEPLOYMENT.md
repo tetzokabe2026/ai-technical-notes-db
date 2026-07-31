@@ -1,29 +1,32 @@
-# GitHub Actions による GCP デプロイ
+# Jenkins による GCP デプロイ（PR merge トリガー）
 
-このドキュメントでは、GitHub Actions から Google Cloud Run へ自動デプロイするためのセットアップ手順を説明します。
+本番の正規ルートは **GitHub Actions のワンプッシュではなく**、**PR を `main` にマージ → Jenkins がビルド〜 Cloud Run デプロイ** です。
 
 ## 概要
 
 ```text
-GitHub (push to main)
-  -> GitHub Actions (CI: lint/build, CD: deploy)
-    -> Artifact Registry (Docker image)
-    -> Cloud Run
-    -> Supabase / OpenAI / Resend
+GitHub PR を main へ Merge
+  -> push to main（webhook）
+    -> Jenkins Pipeline（Jenkinsfile）
+      -> lint / test / build
+      -> Artifact Registry（Docker image）
+      -> Cloud Run
 ```
 
-| ワークフロー | トリガー | 内容 |
+| 経路 | トリガー | 内容 |
 |---|---|---|
-| [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | PR / `main` への push | `npm run lint` と `npm run build` |
-| [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) | `main` への push / 手動実行 | Docker ビルド → Artifact Registry → Cloud Run |
+| [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) | PR / `main` への push | GitHub Actions で lint / test / build（品質ゲート） |
+| [`Jenkinsfile`](../Jenkinsfile) | **PR merge 後の `main` push**（webhook） | 本番ビルド → Artifact Registry → Cloud Run |
+| [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) | **手動のみ** (`workflow_dispatch`) | 緊急時の代替デプロイ |
 
 ## 前提条件
 
-- GCP プロジェクト ID（ご自身のプロジェクト）
+- GCP プロジェクト ID
 - リージョン: `asia-northeast1`（変更可）
 - Artifact Registry リポジトリ: `ai-notes`
 - Cloud Run サービス名: `ai-technical-notes-db`
-- GitHub リポジトリ（このリポジトリ）
+- Jenkins に `gcloud` / Docker が使えるエージェント
+- GitHub → Jenkins webhook（`push`、ブランチ `main`）
 
 ## 1. GCP 側の準備
 
@@ -32,12 +35,12 @@ GitHub (push to main)
 ```bash
 export PROJECT_ID=your-gcp-project-id
 export REGION=asia-northeast1
-export SA_NAME=github-actions-deployer
+export SA_NAME=jenkins-cloud-run-deployer
 export SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 gcloud iam service-accounts create "${SA_NAME}" \
   --project="${PROJECT_ID}" \
-  --display-name="GitHub Actions deployer"
+  --display-name="Jenkins Cloud Run deployer"
 
 for ROLE in \
   roles/run.admin \
@@ -49,7 +52,7 @@ for ROLE in \
 done
 ```
 
-Cloud Run が Secret Manager のシークレットを参照する場合、**Cloud Run の実行用サービスアカウント**（通常は `PROJECT_NUMBER-compute@developer.gserviceaccount.com`）に `roles/secretmanager.secretAccessor` を付与してください。
+Cloud Run が Secret Manager を参照する場合、**実行用サービスアカウント**に `roles/secretmanager.secretAccessor` を付与します。
 
 ```bash
 export PROJECT_NUMBER=$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')
@@ -60,12 +63,16 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --role="roles/secretmanager.secretAccessor"
 ```
 
-### 1.2 Secret Manager
-
-Cloud Run 実行時に必要なシークレットを登録します。シークレット名はワークフローと一致させてください。
+JSON キーを発行し、Jenkins Credential `gcp-sa-key`（Secret file）として登録します。
 
 ```bash
-# 例: 既存の値を登録
+gcloud iam service-accounts keys create jenkins-sa.json \
+  --iam-account="${SA_EMAIL}"
+```
+
+### 1.2 Secret Manager
+
+```bash
 echo -n 'your-service-role-key' | gcloud secrets create supabase-service-role-key \
   --project="${PROJECT_ID}" \
   --replication-policy="automatic" \
@@ -77,104 +84,73 @@ echo -n 'your-openai-api-key' | gcloud secrets create openai-api-key \
   --data-file=-
 ```
 
-既存シークレット名が異なる場合は、`.github/workflows/deploy.yml` の `secrets:` 行を合わせて変更してください。
+既存名が異なる場合は `Jenkinsfile` の `--set-secrets` を合わせて変更してください。
 
-### 1.3 Workload Identity Federation（推奨）
-
-長期間有効なサービスアカウントキーを使わず、GitHub から GCP へ安全に認証する方法です。
+### 1.3 Artifact Registry
 
 ```bash
-export PROJECT_ID=your-gcp-project-id
-export GITHUB_ORG=your-github-org-or-user
-export GITHUB_REPO=ai-technical-notes-db
-export SA_EMAIL="github-actions-deployer@${PROJECT_ID}.iam.gserviceaccount.com"
-export POOL_ID=github-pool
-export PROVIDER_ID=github-provider
-
-gcloud iam workload-identity-pools create "${POOL_ID}" \
-  --project="${PROJECT_ID}" \
-  --location="global" \
-  --display-name="GitHub Actions pool"
-
-gcloud iam workload-identity-pools providers create-oidc "${PROVIDER_ID}" \
-  --project="${PROJECT_ID}" \
-  --location="global" \
-  --workload-identity-pool="${POOL_ID}" \
-  --display-name="GitHub provider" \
-  --attribute-mapping="google.subject=assertion.sub,attribute.actor=assertion.actor,attribute.repository=assertion.repository" \
-  --issuer-uri="https://token.actions.githubusercontent.com"
-
-gcloud iam service-accounts add-iam-policy-binding "${SA_EMAIL}" \
-  --project="${PROJECT_ID}" \
-  --role="roles/iam.workloadIdentityUser" \
-  --member="principalSet://iam.googleapis.com/projects/$(gcloud projects describe ${PROJECT_ID} --format='value(projectNumber)')/locations/global/workloadIdentityPools/${POOL_ID}/attribute.repository/${GITHUB_ORG}/${GITHUB_REPO}"
+gcloud artifacts repositories create ai-notes \
+  --repository-format=docker \
+  --location="${REGION}" \
+  --project="${PROJECT_ID}"
 ```
 
-セットアップ後、以下の値を控えます。
+## 2. Jenkins ジョブ設定
 
-```bash
-# Workload Identity Provider（GitHub Secret に登録）
-gcloud iam workload-identity-pools providers describe "${PROVIDER_ID}" \
-  --project="${PROJECT_ID}" \
-  --location="global" \
-  --workload-identity-pool="${POOL_ID}" \
-  --format='value(name)'
-```
+### 2.1 Pipeline ジョブ
 
-## 2. GitHub リポジトリの設定
+1. **Pipeline script from SCM** でこのリポジトリを指定
+2. Script Path: `Jenkinsfile`
+3. ブランチ: `*/main`（PR merge 後の main のみデプロイ）
+4. ジョブ / フォルダ環境変数:
+   - `GCP_PROJECT_ID`（必須）
+   - 任意: `GCP_REGION`, `AR_REPOSITORY`, `CLOUD_RUN_SERVICE`
 
-GitHub リポジトリの **Settings → Secrets and variables → Actions** で以下を登録します。
+### 2.2 Credentials（ID は Jenkinsfile と一致）
 
-### Variables（必須）
+| Credential ID | 種類 | 内容 |
+|---|---|---|
+| `gcp-sa-key` | Secret file | デプロイ SA の JSON キー |
+| `next-public-supabase-url` | Secret text | Supabase URL（Docker build-arg） |
+| `next-public-supabase-anon` | Secret text | Supabase anon key（Docker build-arg） |
+| `next-public-app-url` | Secret text | 本番アプリ URL |
 
-| 名前 | 説明 |
-|---|---|
-| `GCP_PROJECT_ID` | GCP プロジェクト ID |
+### 2.3 GitHub webhook（PR merge トリガー）
 
-### Secrets（必須）
+PR の Merge は GitHub 上では **`main` への push** として届きます。
 
-| 名前 | 説明 |
-|---|---|
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | WIF プロバイダの完全なリソース名 |
-| `GCP_SERVICE_ACCOUNT` | `github-actions-deployer@your-gcp-project-id.iam.gserviceaccount.com` |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase プロジェクト URL（Docker ビルド時に埋め込み） |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key（Docker ビルド時に埋め込み） |
-| `NEXT_PUBLIC_APP_URL` | 本番アプリ URL（例: `https://ai-technical-notes-db-xxxxx.a.run.app`） |
+1. GitHub リポジトリ → **Settings → Webhooks → Add webhook**
+2. Payload URL: `https://<jenkins-host>/github-webhook/`
+3. Content type: `application/json`
+4. Events: **Just the push event**（または `push` を含む）
+5. Jenkins 側: GitHub plugin / Multibranch で webhook を有効化
 
-### 代替: サービスアカウントキー（非推奨）
+`Jenkinsfile` の `Guard: main only` により、`main` 以外ではデプロイしません。
 
-WIF の設定が難しい場合のみ、JSON キーを `GCP_SA_KEY` として登録し、`deploy.yml` の認証ステップを以下に差し替えます。
+## 3. 運用フロー
 
-```yaml
-- name: Authenticate to Google Cloud
-  uses: google-github-actions/auth@v2
-  with:
-    credentials_json: ${{ secrets.GCP_SA_KEY }}
-```
+1. feature ブランチで PR を作成
+2. GitHub Actions `CI` が PR で lint / test / build
+3. レビュー後に **PR を Merge**
+4. `main` への push で Jenkins が起動
+5. Jenkins が image を push し Cloud Run へデプロイ
+6. Cloud Run URL を確認（初回は `next-public-app-url` を確定値に更新して再デプロイ）
 
-## 3. 初回デプロイ
+緊急時のみ GitHub Actions の **Deploy to Cloud Run (manual)** を `workflow_dispatch` で実行できます。
 
-1. 上記の GCP / GitHub 設定を完了する
-2. 変更を `main` ブランチに push する
-3. GitHub の **Actions** タブで `Deploy to Cloud Run` の実行結果を確認する
-4. デプロイ完了後、Cloud Run の URL を `NEXT_PUBLIC_APP_URL` に反映する（初回は仮 URL でデプロイし、確定後に再デプロイ）
+## 4. ローカル / 手動との関係
 
-手動デプロイは **Actions → Deploy to Cloud Run → Run workflow** から実行できます。
-
-## 4. ローカル開発との関係
-
-- ローカル開発: `npm run dev`（従来どおり）
-- 手動デプロイ: `gcloud builds submit --config=cloudbuild.yaml` も引き続き利用可能（`_PROJECT_ID` 等の substitution を渡す）
-- 本番デプロイの正規ルート: **`main` への merge**
-
-Cursor から直接 GCP へデプロイする必要はありません。コードを GitHub に push すれば CI/CD が自動実行されます。
+- ローカル: `npm run dev`
+- 手動 Cloud Build: `gcloud builds submit --config=cloudbuild.yaml`（substitutions を渡す）
+- **本番正規ルート: PR merge → Jenkins → Cloud Run**
 
 ## 5. トラブルシューティング
 
 | 症状 | 確認ポイント |
 |---|---|
-| 認証エラー | WIF の `attribute.repository` が GitHub リポジトリと一致しているか |
-| Docker push 失敗 | Artifact Registry リポジトリ `ai-notes` が存在するか、SA に `artifactregistry.writer` があるか |
-| Cloud Run 起動後 500 エラー | Secret Manager のシークレット名・権限、環境変数 `NEXT_PUBLIC_APP_URL` |
-| ビルド失敗 | GitHub Secrets の `NEXT_PUBLIC_SUPABASE_*` / Variables の `GCP_PROJECT_ID` が設定されているか |
-| 評価 API が呼ばれない | `NOTE_RATING_API_URL` が Cloud Run / ローカル環境に設定されているか |
+| Jenkins が起動しない | GitHub webhook の Delivery、Jenkins GitHub plugin、`main` ブランチ設定 |
+| `Guard: main only` で失敗 | Multibranch が PR ブランチを Deploy しようとしていないか |
+| `gcloud auth` 失敗 | Credential `gcp-sa-key` と SA 権限 |
+| Docker push 失敗 | Artifact Registry `ai-notes` の有無、`artifactregistry.writer` |
+| Cloud Run 500 | Secret Manager 名・runtime SA の `secretAccessor`、`NEXT_PUBLIC_APP_URL` |
+| 評価 API が呼ばれない | Cloud Run に `NOTE_RATING_API_URL` が必要なら `--set-env-vars` へ追加 |

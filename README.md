@@ -47,10 +47,13 @@ npm run create-admin
 
 ## Deploy
 
-- 手動 / Cloud Build: [DEPLOYMENT.md](./DEPLOYMENT.md)
-- GitHub Actions → Cloud Run: [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)
+本番の正規ルートは **PR を `main` に Merge → Jenkins（`Jenkinsfile`）→ Cloud Run** です。ワンプッシュ（main push での GitHub Actions 自動デプロイ）は使いません。
 
-デプロイ前に GitHub Actions Variables へ `GCP_PROJECT_ID` を設定してください。実プロジェクト ID はリポジトリに含めない想定です。
+- Jenkins（PR merge トリガー）: [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)
+- 手動 / Cloud Build: [DEPLOYMENT.md](./DEPLOYMENT.md)
+- 緊急時のみ: GitHub Actions `Deploy to Cloud Run (manual)`（`workflow_dispatch`）
+
+Jenkins ジョブに `GCP_PROJECT_ID` と Credential（`gcp-sa-key` など）を設定してください。実プロジェクト ID はリポジトリに含めない想定です。
 
 ## Docs
 
