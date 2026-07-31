@@ -114,6 +114,7 @@ gcloud artifacts repositories create ai-notes \
 | `next-public-supabase-url` | Secret text | Supabase URL（Docker build-arg） |
 | `next-public-supabase-anon` | Secret text | Supabase anon key（Docker build-arg） |
 | `next-public-app-url` | Secret text | 本番アプリ URL |
+| `note-rating-api-url` | Secret text | 評価 API ベース URL（`NOTE_RATING_API_URL`） |
 
 ### 2.3 GitHub webhook（PR merge トリガー）
 
