@@ -114,8 +114,9 @@ pipeline {
         ]) {
           sh '''#!/bin/bash
             set -euo pipefail
+            export CLOUDSDK_CORE_DISABLE_PROMPTS=1
             gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-            gcloud config set project "$GCP_PROJECT_ID"
+            gcloud config set project "$GCP_PROJECT_ID" --quiet
 
             # Trim credential whitespace/newlines that break env-var parsing.
             APP_URL="$(printf '%s' "$NEXT_PUBLIC_APP_URL" | tr -d $'\r' | sed 's/[[:space:]]*$//')"
@@ -123,8 +124,9 @@ pipeline {
             APP_URL="${APP_URL%/}"
             RATING_URL="${RATING_URL%/}"
 
-            PROJECT_NUMBER="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')"
-            echo "Deploy target: project=${GCP_PROJECT_ID} number=${PROJECT_NUMBER} service=${CLOUD_RUN_SERVICE} image=${IMAGE_URI}:${GIT_SHA}"
+            # Do NOT call `gcloud projects describe` here: it needs
+            # cloudresourcemanager.googleapis.com and will block deploy when disabled.
+            echo "Deploy target: project=${GCP_PROJECT_ID} service=${CLOUD_RUN_SERVICE} image=${IMAGE_URI}:${GIT_SHA}"
             echo "Credential APP_URL=${APP_URL}"
 
             # Prefer --update-* so we do not wipe unrelated env/secrets on the service.
@@ -134,6 +136,7 @@ pipeline {
               --region="$GCP_REGION" \
               --platform=managed \
               --allow-unauthenticated \
+              --quiet \
               --update-env-vars="NEXT_PUBLIC_APP_URL=${APP_URL},OPENAI_MODEL=gpt-5.5,NOTE_RATING_API_URL=${RATING_URL},NEXT_PUBLIC_GIT_SHA=${GIT_SHA}" \
               --update-secrets="SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,OPENAI_API_KEY=openai-api-key:latest"
             DEPLOY_RC=$?
