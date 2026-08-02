@@ -101,6 +101,39 @@ describe("auth routes", () => {
     expect(response.status).toBe(401);
   });
 
+  it("POST /api/auth/login signs in approved users via getSupabaseAuthClient", async () => {
+    const usersBuilder = createQueryBuilder(async (method) => {
+      if (method === "maybeSingle") {
+        return {
+          data: { id: "u1", email: "x@example.com", auth_user_id: "auth-1", status: "approved" },
+          error: null,
+        };
+      }
+      return { data: null, error: null };
+    });
+    getSupabaseAdmin.mockReturnValue({ from: vi.fn(() => usersBuilder) });
+
+    const signInWithPassword = vi.fn().mockResolvedValue({
+      data: { session: { access_token: "token", refresh_token: "refresh" } },
+      error: null,
+    });
+    getSupabaseAuthClient.mockReturnValue({ auth: { signInWithPassword } });
+
+    const { POST } = await import("@/app/api/auth/login/route");
+    const response = await POST(
+      new Request("http://localhost/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email: "x@example.com", password: "password1234" }),
+      })
+    );
+    const body = await response.json();
+
+    expect(getSupabaseAuthClient).toHaveBeenCalled();
+    expect(signInWithPassword).toHaveBeenCalledWith({ email: "x@example.com", password: "password1234" });
+    expect(setSupabaseSessionCookies).toHaveBeenCalled();
+    expect(body).toEqual({ ok: true });
+  });
+
   it("POST /api/auth/mfa returns 410", async () => {
     const { POST } = await import("@/app/api/auth/mfa/route");
     const response = await POST(new Request("http://localhost/api/auth/mfa", { method: "POST" }));
