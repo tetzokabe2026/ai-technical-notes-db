@@ -628,15 +628,10 @@ export default function Home() {
               <div className="flex items-start justify-between gap-3">
                 <h3 className="min-w-0 flex-1 font-semibold">{note.title}</h3>
                 {hasRatings(note) && (
-                  <div
-                    className="shrink-0 pt-0.5 text-[11px] leading-none text-gray-500"
-                    title={`Usefulness ${note.rating_usefulness} / Importance ${note.rating_importance} / Credibility ${note.rating_credibility}`}
-                  >
-                    {stars(note.rating_usefulness!)}
-                    <span className="mx-1 text-gray-400">·</span>
-                    {stars(note.rating_importance!)}
-                    <span className="mx-1 text-gray-400">·</span>
-                    {stars(note.rating_credibility!)}
+                  <div className="shrink-0 flex flex-wrap justify-end gap-x-2 gap-y-0.5 pt-0.5 text-[11px] leading-none text-gray-500">
+                    <span>Usefulness {stars(note.rating_usefulness!)}</span>
+                    <span>Importance {stars(note.rating_importance!)}</span>
+                    <span>Credibility {stars(note.rating_credibility!)}</span>
                   </div>
                 )}
               </div>
