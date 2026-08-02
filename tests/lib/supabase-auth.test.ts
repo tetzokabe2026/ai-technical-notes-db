@@ -47,4 +47,26 @@ describe("getSupabaseAuthClient", () => {
       })
     );
   });
+
+  it("returns memory client when DEMO_SUPABASE_MODE=memory without anon key", async () => {
+    vi.resetModules();
+    process.env.DEMO_SUPABASE_MODE = "memory";
+    process.env.DEMO_ADMIN_EMAIL = "demo@example.com";
+    process.env.DEMO_ADMIN_PASSWORD = "demo-password-ok";
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    const { getSupabaseAuthClient } = await import("@/lib/supabase-auth");
+    const { resetDemoMemoryStoreForTests } = await import("@/lib/demo-memory-supabase");
+    resetDemoMemoryStoreForTests();
+
+    const client = getSupabaseAuthClient();
+    expect(createClient).not.toHaveBeenCalled();
+    const { data, error } = await client.auth.signInWithPassword({
+      email: "demo@example.com",
+      password: "demo-password-ok",
+    });
+    expect(error).toBeNull();
+    expect(data.session?.access_token).toBeTruthy();
+  });
 });
