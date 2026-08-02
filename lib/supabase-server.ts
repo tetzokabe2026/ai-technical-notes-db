@@ -14,9 +14,13 @@ type SupabaseAdminClient = ReturnType<typeof createRealSupabaseAdmin>;
 
 export function getSupabaseAdmin(): SupabaseAdminClient {
   if (isDemoMemoryMode()) {
-    // Memory mode only exercises the query/auth surface implemented by
-    // DemoMemoryClient; cast preserves the real client's type contract for
-    // callers outside the demo-mode scope (e.g. admin-only auth flows).
+    // Memory mode only implements the demo query/auth surface (sign in,
+    // getUser, refreshSession) plus basic table queries. Admin-only auth
+    // flows and any other Supabase Admin API method are unsupported in
+    // this mode and will throw or be undefined at runtime if called. The
+    // cast below exists solely to keep TypeScript happy for callers that
+    // expect the real Supabase admin client type; it does not mean those
+    // methods work in memory mode.
     return createDemoMemorySupabase() as unknown as SupabaseAdminClient;
   }
 

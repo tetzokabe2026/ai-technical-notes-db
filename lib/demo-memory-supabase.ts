@@ -44,6 +44,10 @@ export function resetDemoMemoryStoreForTests(): void {
 function ensureSeeded(): void {
   const s = getStore();
   if (s.seeded) return;
+  console.warn(
+    "[demo-memory-supabase] DEMO_SUPABASE_MODE=memory is active: data is stored in-process only " +
+      "(lost on restart, not shared across instances) and is NOT production-safe.",
+  );
   const email = process.env.DEMO_ADMIN_EMAIL?.trim().toLowerCase();
   const password = process.env.DEMO_ADMIN_PASSWORD;
   if (!email || !password) {

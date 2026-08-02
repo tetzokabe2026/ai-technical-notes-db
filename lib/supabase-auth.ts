@@ -16,9 +16,12 @@ type SupabaseAuthClientType = ReturnType<typeof createRealSupabaseAuthClient>;
 
 export function getSupabaseAuthClient(): SupabaseAuthClientType {
   if (isDemoMemoryMode()) {
-    // Memory mode only exercises the query/auth surface implemented by
-    // DemoMemoryClient; cast preserves the real client's type contract for
-    // callers outside the demo-mode scope (e.g. password-reset flows).
+    // Memory mode only implements the demo query/auth surface (sign in,
+    // getUser, refreshSession). Any other method (e.g. password reset,
+    // OAuth, admin APIs) is unsupported in this mode and will throw or be
+    // undefined at runtime if called. The cast below exists solely to keep
+    // TypeScript happy for callers that expect the real Supabase client
+    // type; it does not mean those methods work in memory mode.
     return createDemoMemorySupabase() as unknown as SupabaseAuthClientType;
   }
 
