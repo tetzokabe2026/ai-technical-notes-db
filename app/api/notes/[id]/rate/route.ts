@@ -1,10 +1,16 @@
 import { authErrorResponse, requireUser } from "@/lib/auth";
-import { fetchNoteRatings } from "@/lib/note-rating";
+import {
+  fetchNoteRatings,
+  hasCompleteNoteRatings,
+  noteRatingsToDbUpdate,
+} from "@/lib/note-rating";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 
 export const maxDuration = 60;
 
 const NOTE_SELECT = "*, categories(id, name)";
+const RATING_SELECT =
+  "id, content, rating_usefulness, rating_importance, rating_credibility, rating_reality, rating_sensitive";
 
 export async function POST(
   _request: Request,
@@ -17,7 +23,7 @@ export async function POST(
 
     const { data: note, error } = await supabase
       .from("technical_notes")
-      .select("id, content, rating_usefulness, rating_importance, rating_credibility")
+      .select(RATING_SELECT)
       .eq("id", id)
       .eq("owner_user_id", user.id)
       .maybeSingle();
@@ -25,11 +31,7 @@ export async function POST(
     if (error) throw new Error(error.message);
     if (!note) return Response.json({ error: "Note not found." }, { status: 404 });
 
-    if (
-      typeof note.rating_usefulness === "number"
-      && typeof note.rating_importance === "number"
-      && typeof note.rating_credibility === "number"
-    ) {
+    if (hasCompleteNoteRatings(note)) {
       const { data: existing } = await supabase
         .from("technical_notes")
         .select(NOTE_SELECT)
@@ -56,12 +58,7 @@ export async function POST(
 
     const { data: ratedNote, error: ratingError } = await supabase
       .from("technical_notes")
-      .update({
-        rating_eval_id: ratings.evalId,
-        rating_usefulness: ratings.usefulness,
-        rating_importance: ratings.importance,
-        rating_credibility: ratings.credibility,
-      })
+      .update(noteRatingsToDbUpdate(ratings))
       .eq("id", id)
       .eq("owner_user_id", user.id)
       .select(NOTE_SELECT)
