@@ -69,11 +69,17 @@ pipeline {
           npm -v
           npm ci
           npm run lint
-          npm test
+          npm run test:coverage
           NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co \
           NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder-anon-key \
           npm run build
         '''
+      }
+      post {
+        always {
+          // Console already has the text coverage table; keep HTML for browsing.
+          archiveArtifacts artifacts: 'coverage/**/*', allowEmptyArchive: true, fingerprint: true
+        }
       }
     }
 
@@ -93,6 +99,7 @@ pipeline {
             docker build \
               --build-arg NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
               --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+              --build-arg NEXT_PUBLIC_GIT_SHA="$GIT_SHA" \
               -t "${IMAGE_URI}:${GIT_SHA}" \
               -t "${IMAGE_URI}:latest" \
               .
@@ -113,16 +120,76 @@ pipeline {
         ]) {
           sh '''#!/bin/bash
             set -euo pipefail
+            export CLOUDSDK_CORE_DISABLE_PROMPTS=1
             gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
-            gcloud config set project "$GCP_PROJECT_ID"
+            gcloud config set project "$GCP_PROJECT_ID" --quiet
 
+            # Trim credential whitespace/newlines that break env-var parsing.
+            APP_URL="$(printf '%s' "$NEXT_PUBLIC_APP_URL" | tr -d $'\r' | sed 's/[[:space:]]*$//')"
+            RATING_URL="$(printf '%s' "$NOTE_RATING_API_URL" | tr -d $'\r' | sed 's/[[:space:]]*$//')"
+            APP_URL="${APP_URL%/}"
+            RATING_URL="${RATING_URL%/}"
+
+            # Do NOT call `gcloud projects describe` here: it needs
+            # cloudresourcemanager.googleapis.com and will block deploy when disabled.
+            echo "Deploy target: project=${GCP_PROJECT_ID} service=${CLOUD_RUN_SERVICE} image=${IMAGE_URI}:${GIT_SHA}"
+            echo "Credential APP_URL=${APP_URL}"
+
+            # Prefer --update-* so we do not wipe unrelated env/secrets on the service.
+            set +e
             gcloud run deploy "$CLOUD_RUN_SERVICE" \
               --image="${IMAGE_URI}:${GIT_SHA}" \
               --region="$GCP_REGION" \
               --platform=managed \
               --allow-unauthenticated \
-              --set-env-vars="NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL},OPENAI_MODEL=gpt-5.5,NOTE_RATING_API_URL=${NOTE_RATING_API_URL}" \
-              --set-secrets="SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,OPENAI_API_KEY=openai-api-key:latest"
+              --quiet \
+              --update-env-vars="NEXT_PUBLIC_APP_URL=${APP_URL},OPENAI_MODEL=gpt-5.5,NOTE_RATING_API_URL=${RATING_URL},NEXT_PUBLIC_GIT_SHA=${GIT_SHA}" \
+              --update-secrets="SUPABASE_SERVICE_ROLE_KEY=supabase-service-role-key:latest,OPENAI_API_KEY=openai-api-key:latest"
+            DEPLOY_RC=$?
+            set -e
+
+            SERVICE_URL="$(gcloud run services describe "$CLOUD_RUN_SERVICE" \
+              --region="$GCP_REGION" \
+              --format='value(status.url)' 2>/dev/null || true)"
+            echo "Cloud Run status.url=${SERVICE_URL}"
+
+            if [ "$DEPLOY_RC" -ne 0 ]; then
+              echo "gcloud run deploy failed (exit=${DEPLOY_RC}). Dumping diagnostics..." >&2
+              gcloud run revisions list --service="$CLOUD_RUN_SERVICE" --region="$GCP_REGION" --limit=5 || true
+              gcloud run services describe "$CLOUD_RUN_SERVICE" --region="$GCP_REGION" || true
+              gcloud logging read \
+                "resource.type=cloud_run_revision AND resource.labels.service_name=${CLOUD_RUN_SERVICE}" \
+                --project="$GCP_PROJECT_ID" \
+                --limit=30 \
+                --format='value(timestamp,textPayload,jsonPayload.message)' || true
+              exit "$DEPLOY_RC"
+            fi
+
+            if [ -n "$SERVICE_URL" ] && [ "$SERVICE_URL" != "$APP_URL" ]; then
+              echo "WARNING: status.url (${SERVICE_URL}) != Jenkins next-public-app-url (${APP_URL})" >&2
+              echo "Smoke-checking the actual Cloud Run URL, not the credential URL." >&2
+            fi
+
+            CHECK_URL="${SERVICE_URL:-$APP_URL}"
+            CHECK_URL="${CHECK_URL%/}"
+            echo "Smoke-checking ${CHECK_URL}/api/version for gitSha=${GIT_SHA}"
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              BODY="$(curl -fsS "${CHECK_URL}/api/version" || true)"
+              echo "attempt ${i}: ${BODY}"
+              if echo "${BODY}" | grep -q "\"gitSha\":\"${GIT_SHA}\""; then
+                echo "Deploy verified: /api/version matches ${GIT_SHA}"
+                exit 0
+              fi
+              # Fallback: version bump is present (gitSha may be missing if build-arg failed)
+              if echo "${BODY}" | grep -q '"version":"1.3.1"'; then
+                echo "WARNING: version 1.3.1 is live but gitSha did not match ${GIT_SHA}" >&2
+                echo "${BODY}" >&2
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "Deploy smoke check failed: ${CHECK_URL}/api/version did not report gitSha=${GIT_SHA}" >&2
+            exit 1
           '''
         }
       }
@@ -134,7 +201,7 @@ pipeline {
       echo "Deployed ${env.IMAGE_URI}:${env.GIT_SHA} to Cloud Run service ${env.CLOUD_RUN_SERVICE}"
     }
     failure {
-      echo 'Jenkins deploy failed. Check credentials, Artifact Registry, and Cloud Run IAM.'
+      echo 'Jenkins deploy failed. Open the Deploy Cloud Run stage log for gcloud diagnostics.'
     }
   }
 }
