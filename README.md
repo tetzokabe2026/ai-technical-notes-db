@@ -44,6 +44,19 @@ npm run create-admin
 | `SUPABASE_SERVICE_ROLE_KEY` | サーバー専用（公開しない） |
 | `NOTE_RATING_API_URL` | 評価 API のベース URL（未設定なら評価はスキップ） |
 | `OPENAI_API_KEY` | AI 分類用（任意） |
+| `DEMO_SUPABASE_MODE` | `memory` で in-memory デモ（実 Supabase 不要） |
+| `DEMO_ADMIN_EMAIL` / `DEMO_ADMIN_PASSWORD` | memory モードのシード管理者 |
+
+### Demo mode (no Supabase)
+
+```bash
+DEMO_SUPABASE_MODE=memory \
+DEMO_ADMIN_EMAIL=demo@example.com \
+DEMO_ADMIN_PASSWORD=demo-password-ok \
+npm run build && npm run start
+```
+
+ログイン → ノート作成 → rating 保存まで DB なしで動作します（録画用）。
 
 ## Deploy
 
