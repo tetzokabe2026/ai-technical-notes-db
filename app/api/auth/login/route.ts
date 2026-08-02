@@ -1,7 +1,7 @@
 import { setSupabaseSessionCookies } from "@/lib/auth";
 import { checkRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
+import { getSupabaseAuthClient } from "@/lib/supabase-auth";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
-import { createClient } from "@supabase/supabase-js";
 
 // 5 attempts per 15 minutes per IP
 const LOGIN_MAX = 5;
@@ -29,13 +29,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "メールアドレスまたはパスワードが正しくありません。" }, { status: 401 });
     }
 
-    const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !anonKey) throw new Error("NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are required.");
-
-    const authClient = createClient(supabaseUrl, anonKey, {
-      auth: { persistSession: false },
-    });
+    const authClient = getSupabaseAuthClient();
     const { data, error: signInError } = await authClient.auth.signInWithPassword({ email, password });
     if (signInError || !data.session) {
       return Response.json({ error: "メールアドレスまたはパスワードが正しくありません。" }, { status: 401 });

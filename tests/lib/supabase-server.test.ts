@@ -47,4 +47,23 @@ describe("getSupabaseAdmin", () => {
       expect.objectContaining({ auth: { persistSession: false } })
     );
   });
+
+  it("returns memory client when DEMO_SUPABASE_MODE=memory without service role", async () => {
+    vi.resetModules();
+    process.env.DEMO_SUPABASE_MODE = "memory";
+    process.env.DEMO_ADMIN_EMAIL = "demo@example.com";
+    process.env.DEMO_ADMIN_PASSWORD = "demo-password-ok";
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.SUPABASE_URL;
+
+    const { getSupabaseAdmin } = await import("@/lib/supabase-server");
+    const { resetDemoMemoryStoreForTests } = await import("@/lib/demo-memory-supabase");
+    resetDemoMemoryStoreForTests();
+
+    const client = getSupabaseAdmin();
+    expect(createClient).not.toHaveBeenCalled();
+    const { data } = await client.from("app_users").select("email").eq("email", "demo@example.com").maybeSingle();
+    expect(data?.email).toBe("demo@example.com");
+  });
 });

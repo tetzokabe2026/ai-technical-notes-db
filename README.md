@@ -44,6 +44,22 @@ npm run create-admin
 | `SUPABASE_SERVICE_ROLE_KEY` | サーバー専用（公開しない） |
 | `NOTE_RATING_API_URL` | 評価 API のベース URL（未設定なら評価はスキップ） |
 | `OPENAI_API_KEY` | AI 分類用（任意） |
+| `DEMO_SUPABASE_MODE` | `memory` で in-memory デモ（実 Supabase 不要） |
+| `DEMO_ADMIN_EMAIL` / `DEMO_ADMIN_PASSWORD` | memory モードのシード管理者 |
+
+### Demo mode (no Supabase)
+
+```bash
+DEMO_SUPABASE_MODE=memory \
+DEMO_ADMIN_EMAIL=demo@example.com \
+DEMO_ADMIN_PASSWORD=demo-password-ok \
+NOTE_RATING_API_URL=https://your-rating-api.example.com \
+npm run build && npm run start
+```
+
+ログイン → ノート作成まで DB なしで動作します（録画用）。rating（星評価）の保存・表示には `NOTE_RATING_API_URL` が必要です。未設定の場合、ログイン / ノート作成のみ確認できます。
+
+memory モードでは `NEXT_PUBLIC_SUPABASE_*` / `SUPABASE_SERVICE_ROLE_KEY` は使用されません（実 Supabase 不要）。一方 `DEMO_ADMIN_EMAIL` / `DEMO_ADMIN_PASSWORD` は必須です（未設定だと起動時にエラーになります）。
 
 ## Deploy
 
