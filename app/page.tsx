@@ -2,6 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import {
+  EVALUATION_RATING_FIELDS,
+  EvaluationRatingField,
+  formatRatingFieldLabel,
+} from "@/lib/note-rating";
 import { Category, TechnicalNote } from "@/lib/supabase";
 import { APP_VERSION_LABEL } from "@/lib/version";
 
@@ -349,12 +354,19 @@ export default function Home() {
     return "⭐️".repeat(n);
   }
 
+  const RATING_DB_KEYS: Record<EvaluationRatingField, keyof TechnicalNote> = {
+    usefulness: "rating_usefulness",
+    importance: "rating_importance",
+    credibility: "rating_credibility",
+  };
+
+  function ratingValue(note: TechnicalNote, field: EvaluationRatingField): number | null {
+    const value = note[RATING_DB_KEYS[field]];
+    return typeof value === "number" ? value : null;
+  }
+
   function hasRatings(note: TechnicalNote) {
-    return (
-      typeof note.rating_usefulness === "number"
-      && typeof note.rating_importance === "number"
-      && typeof note.rating_credibility === "number"
-    );
+    return EVALUATION_RATING_FIELDS.every((field) => ratingValue(note, field) !== null);
   }
 
   async function ensureNoteRatings(note: TechnicalNote) {
@@ -424,9 +436,11 @@ export default function Home() {
           <section className="mb-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               <span className="font-semibold text-gray-700">Ratings</span>
-              <span>Usefulness {stars(selected.rating_usefulness!)}</span>
-              <span>Importance {stars(selected.rating_importance!)}</span>
-              <span>Credibility {stars(selected.rating_credibility!)}</span>
+              {EVALUATION_RATING_FIELDS.map((field) => (
+                <span key={field}>
+                  {formatRatingFieldLabel(field)} {stars(ratingValue(selected, field)!)}
+                </span>
+              ))}
             </div>
           </section>
         ) : (
@@ -628,15 +642,14 @@ export default function Home() {
               <div className="flex items-start justify-between gap-3">
                 <h3 className="min-w-0 flex-1 font-semibold">{note.title}</h3>
                 {hasRatings(note) && (
-                  <div
-                    className="shrink-0 pt-0.5 text-[11px] leading-none text-gray-500"
-                    title={`Usefulness ${note.rating_usefulness} / Importance ${note.rating_importance} / Credibility ${note.rating_credibility}`}
-                  >
-                    {stars(note.rating_usefulness!)}
-                    <span className="mx-1 text-gray-400">·</span>
-                    {stars(note.rating_importance!)}
-                    <span className="mx-1 text-gray-400">·</span>
-                    {stars(note.rating_credibility!)}
+                  <div className="shrink-0 max-w-[min(100%,20rem)] pt-0.5 text-[11px] leading-snug text-gray-500">
+                    <div className="flex flex-wrap justify-end gap-x-2 gap-y-0.5">
+                      {EVALUATION_RATING_FIELDS.map((field) => (
+                        <span key={field}>
+                          {formatRatingFieldLabel(field)} {stars(ratingValue(note, field)!)}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

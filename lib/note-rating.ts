@@ -7,12 +7,27 @@ const RETRY_DELAY_MS = 2_000;
 export const DEFAULT_RATING_API_URL =
   "https://evaluation-mock-api-47730621722.asia-northeast1.run.app";
 
+/** Evaluation rating fields from the OpenAPI Evaluation schema (excluding eval-id). */
+export const EVALUATION_RATING_FIELDS = [
+  "usefulness",
+  "importance",
+  "credibility",
+] as const;
+
+export type EvaluationRatingField = (typeof EVALUATION_RATING_FIELDS)[number];
+
 export type NoteRatings = {
   evalId: string;
-  usefulness: number;
-  importance: number;
-  credibility: number;
-};
+} & Record<EvaluationRatingField, number>;
+
+/** Human-readable label for an Evaluation rating field (e.g. vocabularyRichness → Vocabulary Richness). */
+export function formatRatingFieldLabel(field: string): string {
+  const spaced = field
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[-_]+/g, " ")
+    .trim();
+  return spaced.replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 export type RatingSkipReason =
   | "content_too_short"
@@ -78,14 +93,14 @@ function parseRatings(payload: unknown): NoteRatings | null {
   const evalId = data["eval-id"] ?? data.eval_id ?? data.evalId;
   if (typeof evalId !== "string" || !evalId) return null;
 
-  const usefulness = coerceScore(data.usefulness);
-  const importance = coerceScore(data.importance);
-  const credibility = coerceScore(data.credibility);
-  if (usefulness === null || importance === null || credibility === null) {
-    return null;
+  const ratings = { evalId } as Partial<NoteRatings>;
+  for (const field of EVALUATION_RATING_FIELDS) {
+    const score = coerceScore(data[field]);
+    if (score === null) return null;
+    ratings[field] = score;
   }
 
-  return { evalId, usefulness, importance, credibility };
+  return ratings as NoteRatings;
 }
 
 async function requestRatingsOnce(body: string, baseUrl: string): Promise<NoteRatings> {
