@@ -35,6 +35,8 @@ describe("POST /api/notes/[id]/rate", () => {
             rating_usefulness: null,
             rating_importance: null,
             rating_credibility: null,
+            rating_elegance: null,
+            rating_originality: null,
           },
           error: null,
         };
@@ -46,6 +48,8 @@ describe("POST /api/notes/[id]/rate", () => {
             rating_usefulness: 4,
             rating_importance: 3,
             rating_credibility: 5,
+            rating_elegance: 2,
+            rating_originality: 1,
           },
           error: null,
         };
@@ -61,6 +65,8 @@ describe("POST /api/notes/[id]/rate", () => {
         usefulness: 4,
         importance: 3,
         credibility: 5,
+        elegance: 2,
+        originality: 1,
       },
     });
 

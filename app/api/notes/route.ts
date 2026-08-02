@@ -100,6 +100,8 @@ export async function POST(request: Request) {
         rating_usefulness: ratings.usefulness,
         rating_importance: ratings.importance,
         rating_credibility: ratings.credibility,
+        rating_elegance: ratings.elegance,
+        rating_originality: ratings.originality,
       })
       .eq("id", data.id)
       .eq("owner_user_id", user.id)

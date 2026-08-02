@@ -7,6 +7,14 @@ import { APP_VERSION_LABEL } from "@/lib/version";
 
 const EMPTY_FORM = { title: "", category_id: "", tags: "", source_url: "", content: "" };
 
+const RATING_FIELDS = [
+  { key: "rating_usefulness", label: "Usefulness" },
+  { key: "rating_importance", label: "Importance" },
+  { key: "rating_credibility", label: "Credibility" },
+  { key: "rating_elegance", label: "Elegance" },
+  { key: "rating_originality", label: "Originality" },
+] as const;
+
 type CategorySuggestion = {
   suggested_title: string;
   suggested_path: string[];
@@ -350,11 +358,15 @@ export default function Home() {
   }
 
   function hasRatings(note: TechnicalNote) {
-    return (
-      typeof note.rating_usefulness === "number"
-      && typeof note.rating_importance === "number"
-      && typeof note.rating_credibility === "number"
+    return RATING_FIELDS.every(
+      ({ key }) => typeof note[key] === "number",
     );
+  }
+
+  function ratingSummaryTitle(note: TechnicalNote) {
+    return RATING_FIELDS
+      .map(({ key, label }) => `${label} ${note[key]}`)
+      .join(" / ");
   }
 
   async function ensureNoteRatings(note: TechnicalNote) {
@@ -424,9 +436,9 @@ export default function Home() {
           <section className="mb-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               <span className="font-semibold text-gray-700">Ratings</span>
-              <span>Usefulness {stars(selected.rating_usefulness!)}</span>
-              <span>Importance {stars(selected.rating_importance!)}</span>
-              <span>Credibility {stars(selected.rating_credibility!)}</span>
+              {RATING_FIELDS.map(({ key, label }) => (
+                <span key={key}>{label} {stars(selected[key]!)}</span>
+              ))}
             </div>
           </section>
         ) : (
@@ -630,13 +642,14 @@ export default function Home() {
                 {hasRatings(note) && (
                   <div
                     className="shrink-0 pt-0.5 text-[11px] leading-none text-gray-500"
-                    title={`Usefulness ${note.rating_usefulness} / Importance ${note.rating_importance} / Credibility ${note.rating_credibility}`}
+                    title={ratingSummaryTitle(note)}
                   >
-                    {stars(note.rating_usefulness!)}
-                    <span className="mx-1 text-gray-400">·</span>
-                    {stars(note.rating_importance!)}
-                    <span className="mx-1 text-gray-400">·</span>
-                    {stars(note.rating_credibility!)}
+                    {RATING_FIELDS.map(({ key, label }, index) => (
+                      <span key={key}>
+                        {index > 0 && <span className="mx-1 text-gray-400">·</span>}
+                        <span title={label}>{stars(note[key]!)}</span>
+                      </span>
+                    ))}
                   </div>
                 )}
               </div>

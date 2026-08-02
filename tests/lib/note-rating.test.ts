@@ -15,6 +15,8 @@ describe("note-rating", () => {
           usefulness: 3,
           importance: 4,
           credibility: 5,
+          elegance: 2,
+          originality: 1,
         }),
         { status: 201 },
       ),
@@ -32,6 +34,8 @@ describe("note-rating", () => {
       usefulness: 3,
       importance: 4,
       credibility: 5,
+      elegance: 2,
+      originality: 1,
     });
     expect(String(fetchMock.mock.calls[0]?.[0])).toMatch(/\/evaluations$/);
   });
@@ -46,6 +50,8 @@ describe("note-rating", () => {
           usefulness: 2,
           importance: 2,
           credibility: 2,
+          elegance: 3,
+          originality: 4,
         }),
         { status: 201 },
       ),
@@ -80,6 +86,8 @@ describe("note-rating", () => {
           usefulness: 4,
           importance: 4,
           credibility: 4,
+          elegance: 3,
+          originality: 5,
         }),
         { status: 201 },
       );

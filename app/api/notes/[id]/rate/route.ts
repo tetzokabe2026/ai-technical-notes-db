@@ -17,7 +17,7 @@ export async function POST(
 
     const { data: note, error } = await supabase
       .from("technical_notes")
-      .select("id, content, rating_usefulness, rating_importance, rating_credibility")
+      .select("id, content, rating_usefulness, rating_importance, rating_credibility, rating_elegance, rating_originality")
       .eq("id", id)
       .eq("owner_user_id", user.id)
       .maybeSingle();
@@ -29,6 +29,8 @@ export async function POST(
       typeof note.rating_usefulness === "number"
       && typeof note.rating_importance === "number"
       && typeof note.rating_credibility === "number"
+      && typeof note.rating_elegance === "number"
+      && typeof note.rating_originality === "number"
     ) {
       const { data: existing } = await supabase
         .from("technical_notes")
@@ -61,6 +63,8 @@ export async function POST(
         rating_usefulness: ratings.usefulness,
         rating_importance: ratings.importance,
         rating_credibility: ratings.credibility,
+        rating_elegance: ratings.elegance,
+        rating_originality: ratings.originality,
       })
       .eq("id", id)
       .eq("owner_user_id", user.id)

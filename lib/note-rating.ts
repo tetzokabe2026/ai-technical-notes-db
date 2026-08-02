@@ -12,6 +12,8 @@ export type NoteRatings = {
   usefulness: number;
   importance: number;
   credibility: number;
+  elegance: number;
+  originality: number;
 };
 
 export type RatingSkipReason =
@@ -81,11 +83,19 @@ function parseRatings(payload: unknown): NoteRatings | null {
   const usefulness = coerceScore(data.usefulness);
   const importance = coerceScore(data.importance);
   const credibility = coerceScore(data.credibility);
-  if (usefulness === null || importance === null || credibility === null) {
+  const elegance = coerceScore(data.elegance);
+  const originality = coerceScore(data.originality);
+  if (
+    usefulness === null
+    || importance === null
+    || credibility === null
+    || elegance === null
+    || originality === null
+  ) {
     return null;
   }
 
-  return { evalId, usefulness, importance, credibility };
+  return { evalId, usefulness, importance, credibility, elegance, originality };
 }
 
 async function requestRatingsOnce(body: string, baseUrl: string): Promise<NoteRatings> {
