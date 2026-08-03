@@ -7,18 +7,48 @@ const RETRY_DELAY_MS = 2_000;
 export const DEFAULT_RATING_API_URL =
   "https://evaluation-mock-api-47730621722.asia-northeast1.run.app";
 
+/** OpenAPI Evaluation schema rating properties (excludes eval-id). */
+export const EVALUATION_RATING_FIELDS = [
+  "usefulness",
+  "importance",
+  "credibility",
+  "reality",
+  "sensitive",
+] as const;
+
+export type EvaluationRatingField = (typeof EVALUATION_RATING_FIELDS)[number];
+
+export const RATING_FIELD_LABELS: Record<EvaluationRatingField, string> = {
+  usefulness: "Usefulness",
+  importance: "Importance",
+  credibility: "Credibility",
+  reality: "Reality",
+  sensitive: "Sensitive",
+};
+
 export type NoteRatings = {
   evalId: string;
-  usefulness: number;
-  importance: number;
-  credibility: number;
-};
+} & Record<EvaluationRatingField, number>;
 
 export type RatingSkipReason =
   | "content_too_short"
   | "content_empty"
   | "api_failed"
   | "invalid_payload";
+
+export function noteRatingsToDbUpdate(ratings: NoteRatings): Record<string, string | number> {
+  const update: Record<string, string | number> = { rating_eval_id: ratings.evalId };
+  for (const field of EVALUATION_RATING_FIELDS) {
+    update[`rating_${field}`] = ratings[field];
+  }
+  return update;
+}
+
+export function hasCompleteNoteRatings(note: Record<string, unknown>): boolean {
+  return EVALUATION_RATING_FIELDS.every(
+    (field) => typeof note[`rating_${field}`] === "number",
+  );
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -78,14 +108,14 @@ function parseRatings(payload: unknown): NoteRatings | null {
   const evalId = data["eval-id"] ?? data.eval_id ?? data.evalId;
   if (typeof evalId !== "string" || !evalId) return null;
 
-  const usefulness = coerceScore(data.usefulness);
-  const importance = coerceScore(data.importance);
-  const credibility = coerceScore(data.credibility);
-  if (usefulness === null || importance === null || credibility === null) {
-    return null;
+  const scores = {} as Record<EvaluationRatingField, number>;
+  for (const field of EVALUATION_RATING_FIELDS) {
+    const score = coerceScore(data[field]);
+    if (score === null) return null;
+    scores[field] = score;
   }
 
-  return { evalId, usefulness, importance, credibility };
+  return { evalId, ...scores };
 }
 
 async function requestRatingsOnce(body: string, baseUrl: string): Promise<NoteRatings> {

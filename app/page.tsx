@@ -3,6 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Category, TechnicalNote } from "@/lib/supabase";
+import {
+  EVALUATION_RATING_FIELDS,
+  hasCompleteNoteRatings,
+  RATING_FIELD_LABELS,
+} from "@/lib/note-rating";
 import { APP_VERSION_LABEL } from "@/lib/version";
 
 const EMPTY_FORM = { title: "", category_id: "", tags: "", source_url: "", content: "" };
@@ -350,11 +355,21 @@ export default function Home() {
   }
 
   function hasRatings(note: TechnicalNote) {
-    return (
-      typeof note.rating_usefulness === "number"
-      && typeof note.rating_importance === "number"
-      && typeof note.rating_credibility === "number"
-    );
+    return hasCompleteNoteRatings(note);
+  }
+
+  function ratingSummaryTitle(note: TechnicalNote) {
+    return EVALUATION_RATING_FIELDS.map(
+      (field) => `${RATING_FIELD_LABELS[field]} ${note[`rating_${field}`]}`,
+    ).join(" / ");
+  }
+
+  function ratingStars(note: TechnicalNote) {
+    return EVALUATION_RATING_FIELDS.map((field) => (
+      <span key={field}>
+        {stars(note[`rating_${field}`]!)}
+      </span>
+    ));
   }
 
   async function ensureNoteRatings(note: TechnicalNote) {
@@ -424,9 +439,11 @@ export default function Home() {
           <section className="mb-4 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
               <span className="font-semibold text-gray-700">Ratings</span>
-              <span>Usefulness {stars(selected.rating_usefulness!)}</span>
-              <span>Importance {stars(selected.rating_importance!)}</span>
-              <span>Credibility {stars(selected.rating_credibility!)}</span>
+              {EVALUATION_RATING_FIELDS.map((field) => (
+                <span key={field}>
+                  {RATING_FIELD_LABELS[field]} {stars(selected[`rating_${field}`]!)}
+                </span>
+              ))}
             </div>
           </section>
         ) : (
@@ -630,13 +647,14 @@ export default function Home() {
                 {hasRatings(note) && (
                   <div
                     className="shrink-0 pt-0.5 text-[11px] leading-none text-gray-500"
-                    title={`Usefulness ${note.rating_usefulness} / Importance ${note.rating_importance} / Credibility ${note.rating_credibility}`}
+                    title={ratingSummaryTitle(note)}
                   >
-                    {stars(note.rating_usefulness!)}
-                    <span className="mx-1 text-gray-400">·</span>
-                    {stars(note.rating_importance!)}
-                    <span className="mx-1 text-gray-400">·</span>
-                    {stars(note.rating_credibility!)}
+                    {ratingStars(note).map((starsEl, index) => (
+                      <span key={EVALUATION_RATING_FIELDS[index]}>
+                        {index > 0 && <span className="mx-1 text-gray-400">·</span>}
+                        {starsEl}
+                      </span>
+                    ))}
                   </div>
                 )}
               </div>

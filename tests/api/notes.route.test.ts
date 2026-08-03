@@ -18,9 +18,10 @@ vi.mock("@/lib/supabase-server", () => ({
   getSupabaseAdmin,
 }));
 
-vi.mock("@/lib/note-rating", () => ({
-  fetchNoteRatings,
-}));
+vi.mock("@/lib/note-rating", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/note-rating")>();
+  return { ...actual, fetchNoteRatings };
+});
 
 describe("GET /api/notes", () => {
   beforeEach(() => {

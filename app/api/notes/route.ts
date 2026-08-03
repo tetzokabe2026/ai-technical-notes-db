@@ -1,5 +1,5 @@
 import { authErrorResponse, requireUser } from "@/lib/auth";
-import { fetchNoteRatings } from "@/lib/note-rating";
+import { fetchNoteRatings, noteRatingsToDbUpdate } from "@/lib/note-rating";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 
 export const maxDuration = 60;
@@ -95,12 +95,7 @@ export async function POST(request: Request) {
 
     const { data: ratedNote, error: ratingError } = await supabase
       .from("technical_notes")
-      .update({
-        rating_eval_id: ratings.evalId,
-        rating_usefulness: ratings.usefulness,
-        rating_importance: ratings.importance,
-        rating_credibility: ratings.credibility,
-      })
+      .update(noteRatingsToDbUpdate(ratings))
       .eq("id", data.id)
       .eq("owner_user_id", user.id)
       .select(NOTE_SELECT)

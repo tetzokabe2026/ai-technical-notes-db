@@ -15,9 +15,10 @@ vi.mock("@/lib/supabase-server", () => ({
   getSupabaseAdmin,
 }));
 
-vi.mock("@/lib/note-rating", () => ({
-  fetchNoteRatings,
-}));
+vi.mock("@/lib/note-rating", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/note-rating")>();
+  return { ...actual, fetchNoteRatings };
+});
 
 describe("POST /api/notes/[id]/rate", () => {
   beforeEach(() => {
@@ -35,6 +36,8 @@ describe("POST /api/notes/[id]/rate", () => {
             rating_usefulness: null,
             rating_importance: null,
             rating_credibility: null,
+            rating_reality: null,
+            rating_sensitive: null,
           },
           error: null,
         };
@@ -46,6 +49,8 @@ describe("POST /api/notes/[id]/rate", () => {
             rating_usefulness: 4,
             rating_importance: 3,
             rating_credibility: 5,
+            rating_reality: 2,
+            rating_sensitive: 1,
           },
           error: null,
         };
@@ -61,6 +66,8 @@ describe("POST /api/notes/[id]/rate", () => {
         usefulness: 4,
         importance: 3,
         credibility: 5,
+        reality: 2,
+        sensitive: 1,
       },
     });
 
