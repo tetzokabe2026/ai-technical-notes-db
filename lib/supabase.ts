@@ -24,8 +24,6 @@ export type TechnicalNote = {
   rating_usefulness: number | null;
   rating_importance: number | null;
   rating_credibility: number | null;
-  rating_reality: number | null;
-  rating_sensitive: number | null;
   created_at: string;
   updated_at: string;
 };

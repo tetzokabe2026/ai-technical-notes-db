@@ -68,8 +68,6 @@ describe("createDemoMemorySupabase", () => {
         rating_usefulness: 4,
         rating_importance: 3,
         rating_credibility: 5,
-        rating_reality: 2,
-        rating_sensitive: 1,
       })
       .eq("id", note.id)
       .eq("owner_user_id", "demo-app-user-id")
@@ -81,8 +79,6 @@ describe("createDemoMemorySupabase", () => {
       rating_usefulness: 4,
       rating_importance: 3,
       rating_credibility: 5,
-      rating_reality: 2,
-      rating_sensitive: 1,
     });
 
     const { data: userLookup } = await client.auth.getUser(signIn.session!.access_token);
