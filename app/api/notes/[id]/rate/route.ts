@@ -10,7 +10,7 @@ export const maxDuration = 60;
 
 const NOTE_SELECT = "*, categories(id, name)";
 const RATING_SELECT =
-  "id, content, rating_usefulness, rating_importance, rating_credibility, rating_reality, rating_sensitive";
+  "id, content, rating_usefulness, rating_importance, rating_credibility";
 
 export async function POST(
   _request: Request,

@@ -12,8 +12,6 @@ export const EVALUATION_RATING_FIELDS = [
   "usefulness",
   "importance",
   "credibility",
-  "reality",
-  "sensitive",
 ] as const;
 
 export type EvaluationRatingField = (typeof EVALUATION_RATING_FIELDS)[number];
@@ -22,8 +20,6 @@ export const RATING_FIELD_LABELS: Record<EvaluationRatingField, string> = {
   usefulness: "Usefulness",
   importance: "Importance",
   credibility: "Credibility",
-  reality: "Reality",
-  sensitive: "Sensitive",
 };
 
 export type NoteRatings = {
